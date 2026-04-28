@@ -1,0 +1,56 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/client" 
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SEEKER
+  WORKER
+}
+
+enum JobStatus {
+  OPEN
+  ACCEPTED
+  COMPLETED
+}
+
+enum JobType {
+  TRASH_CLEANUP
+  HOME_GARDEN_CLEANUP
+  GRASS_CUTTING
+  DECK_FENCE_BUILDING
+  GARDEN_TENDING
+  CROP_PICKING
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String
+  role          Role
+  paymentId     String?  // PayPal/Stripe routing ID for workers
+  postedJobs    Job[]    @relation("SeekerJobs")
+  acceptedJobs  Job[]    @relation("WorkerJobs")
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  title       String
+  type        JobType
+  description String
+  price       Float
+  status      JobStatus @default(OPEN)
+  
+  seekerId    String
+  seeker      User      @relation("SeekerJobs", fields: [seekerId], references: [id])
+  
+  workerId    String?
+  worker      User?     @relation("WorkerJobs", fields: [workerId], references: [id])
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
