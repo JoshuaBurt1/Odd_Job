@@ -15,13 +15,13 @@ export default function Home() {
           href="/jobs"
           className="flex h-12 items-center justify-center rounded-full bg-foreground px-8 font-medium text-background transition-colors hover:opacity-90"
         >
-          View Open Jobs
+          Browse Jobs
         </Link>
         <Link
-          href="/auth"
-          className="flex h-12 items-center justify-center rounded-full border border-solid border-black/[.08] px-8 font-medium transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+          href="/jobs?action=post"
+          className="flex h-12 items-center justify-center rounded-full border border-solid border-black/8 px-8 font-medium transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
         >
-          Get Started
+          Post a Job
         </Link>
       </div>
     </div>

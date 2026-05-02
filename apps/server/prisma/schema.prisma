@@ -7,11 +7,6 @@ datasource db {
   provider = "postgresql"
 }
 
-enum Role {
-  SEEKER
-  WORKER
-}
-
 enum JobStatus {
   OPEN
   ACCEPTED
@@ -28,13 +23,13 @@ enum JobType {
 }
 
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  name          String
-  role          Role
-  paymentId     String?  // PayPal/Stripe routing ID for workers
-  postedJobs    Job[]    @relation("SeekerJobs")
-  acceptedJobs  Job[]    @relation("WorkerJobs")
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String   // Added for authentication
+  name         String
+  paymentId    String?  // PayPal/Stripe routing ID for workers
+  postedJobs   Job[]    @relation("SeekerJobs")
+  acceptedJobs Job[]    @relation("WorkerJobs")
 }
 
 model Job {

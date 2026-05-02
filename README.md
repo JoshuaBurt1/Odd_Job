@@ -1,4 +1,4 @@
-# OddJob
+# Odd Job
 
 Odd job posting site.
 

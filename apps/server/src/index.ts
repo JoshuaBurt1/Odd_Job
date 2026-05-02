@@ -5,6 +5,9 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import cors from 'cors';
 
+// Debugging check
+console.log("Database Host:", process.env.DB_HOST);
+
 const aivenConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
@@ -12,8 +15,7 @@ const aivenConfig = {
     port: Number(process.env.DB_PORT),
     database: process.env.DB_NAME,
     ssl: {
-        rejectUnauthorized: true,
-        // Added the replace function back to properly parse the multiline cert
+        rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
         ca: process.env.DB_SSL_CA ? process.env.DB_SSL_CA.replace(/\\n/g, '\n') : undefined,
     },
 };
@@ -27,7 +29,41 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// --- ENDPOINTS ---
+// --- AUTH ENDPOINTS ---
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    
+    const user = await prisma.user.create({
+      data: { name, email, password }
+    });
+    
+    res.json({ id: user.id, email: user.email, name: user.name });
+  } catch (error) {
+    console.error("Registration Error:", error);
+    res.status(400).json({ error: "Registration failed. Database connection or duplicate email issue." });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    const user = await prisma.user.findUnique({ where: { email } });
+    
+    if (!user || user.password !== password) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    
+    res.json({ id: user.id, email: user.email, name: user.name });
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ error: "Login failed due to server error" });
+  }
+});
+
+// --- JOB ENDPOINTS ---
 
 app.post('/api/jobs', async (req, res) => {
   try {
@@ -50,7 +86,6 @@ app.post('/api/jobs', async (req, res) => {
 
 app.get('/api/jobs/open', async (req, res) => {
   try {
-    // Replaced 'OPEN' with Enum
     const jobs = await prisma.job.findMany({ where: { status: JobStatus.OPEN } });
     res.json(jobs);
   } catch (error) {
@@ -59,25 +94,26 @@ app.get('/api/jobs/open', async (req, res) => {
 });
 
 app.post('/api/jobs/:id/accept', async (req, res) => {
-  const { workerId, paymentId } = req.body;
+  const { workerId } = req.body;
   const jobId = req.params.id;
 
   try {
     const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const job = await tx.job.findUnique({ where: { id: jobId } });
       
-      // Replaced 'OPEN' with Enum
       if (!job || job.status !== JobStatus.OPEN) {
         throw new Error("Job is no longer available.");
+      }
+      
+      if (job.seekerId === workerId) {
+        throw new Error("You cannot accept a job you posted.");
       }
 
       return await tx.job.update({
         where: { id: jobId },
         data: { 
-          status: JobStatus.ACCEPTED, // Replaced 'ACCEPTED' with Enum
+          status: JobStatus.ACCEPTED,
           workerId,
-          // Storing worker payment info at the time of acceptance
-          // Note: paymentId needs to be added to the Job model in schema if you intend to save it here
         }
       });
     });
@@ -91,12 +127,11 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
   try {
     const job = await prisma.job.update({
       where: { id: req.params.id },
-      data: { status: JobStatus.COMPLETED }, // Replaced 'COMPLETED' with Enum
+      data: { status: JobStatus.COMPLETED },
       include: { worker: true }
     });
     
-    // Using the worker relation to get the paymentId
-    console.log(`Processing payment of $${job.price} to worker payment ID: ${job.worker?.paymentId}`);
+    console.log(`Processing payment of $${job.price} to worker: ${job.worker?.name}`);
 
     res.json({ message: "Job completed and paid successfully.", job });
   } catch (error) {
