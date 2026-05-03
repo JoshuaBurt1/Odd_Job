@@ -29,7 +29,30 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// --- AUTH ENDPOINTS ---
+// --- REAL-TIME SSE LOGIC ---
+let clients: any[] = [];
+
+const broadcastUpdate = (data: any) => {
+  clients.forEach(client => client.write(`data: ${JSON.stringify(data)}\n\n`));
+};
+
+// SSE Stream Endpoint
+app.get('/api/jobs/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  res.write(': connected\n\n'); 
+
+  clients.push(res);
+
+  req.on('close', () => {
+    clients = clients.filter(client => client !== res);
+  });
+});
+
+// --- AUTH & USER ENDPOINTS ---
 
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -63,20 +86,48 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// NEW: User Profile Endpoint
+app.get('/api/users/:id/profile', async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: {
+        acceptedJobs: {
+          where: { status: JobStatus.COMPLETED }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const completedJobs = user.acceptedJobs.length;
+    const earnings = user.acceptedJobs.reduce((total, job) => total + job.price, 0);
+
+    res.json({
+      name: user.name,
+      createdAt: user.createdAt,
+      completedJobs,
+      earnings
+    });
+  } catch (error) {
+    console.error("Profile Fetch Error:", error);
+    res.status(500).json({ error: "Failed to fetch profile data" });
+  }
+});
+
 // --- JOB ENDPOINTS ---
 
 app.post('/api/jobs', async (req, res) => {
   try {
     const { title, type, description, price, seekerId } = req.body;
     const job = await prisma.job.create({
-      data: { 
-        title, 
-        type, 
-        description, 
-        price: parseFloat(price), 
-        seekerId 
-      }
+      data: { title, type, description, price: parseFloat(price), seekerId }
     });
+
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+
     res.json(job);
   } catch (error) {
     console.error(error);
@@ -84,9 +135,28 @@ app.post('/api/jobs', async (req, res) => {
   }
 });
 
-app.get('/api/jobs/open', async (req, res) => {
+app.get('/api/jobs', async (req, res) => {
+  const { userId } = req.query;
+
   try {
-    const jobs = await prisma.job.findMany({ where: { status: JobStatus.OPEN } });
+    const jobs = await prisma.job.findMany({ 
+      where: userId ? {
+        OR: [
+          { status: JobStatus.OPEN },
+          { seekerId: String(userId) },
+          { workerId: String(userId) }
+        ]
+      } : { status: JobStatus.OPEN },
+      include: {
+        worker: {
+          select: { name: true }
+        },
+        seeker: {
+          select: { name: true } 
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
     res.json(jobs);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch jobs" });
@@ -117,7 +187,33 @@ app.post('/api/jobs/:id/accept', async (req, res) => {
         }
       });
     });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
     res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/jobs/:id/cancel', async (req, res) => {
+  const { workerId } = req.body;
+  const jobId = req.params.id;
+
+  try {
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    
+    if (!job || job.workerId !== workerId) {
+      throw new Error("Unauthorized to cancel this job.");
+    }
+
+    const updatedJob = await prisma.job.update({
+      where: { id: jobId },
+      data: { 
+        status: JobStatus.OPEN,
+        workerId: null, 
+      }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json(updatedJob);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
@@ -127,15 +223,43 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
   try {
     const job = await prisma.job.update({
       where: { id: req.params.id },
+      data: { status: JobStatus.AWAITING_EVALUATION },
+      include: { worker: true }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job submitted for evaluation.", job });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to submit job for evaluation." });
+  }
+});
+
+app.post('/api/jobs/:id/approve', async (req, res) => {
+  try {
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
       data: { status: JobStatus.COMPLETED },
       include: { worker: true }
     });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
     
     console.log(`Processing payment of $${job.price} to worker: ${job.worker?.name}`);
-
     res.json({ message: "Job completed and paid successfully.", job });
   } catch (error) {
-    res.status(500).json({ error: "Failed to complete job" });
+    res.status(500).json({ error: "Failed to approve job." });
+  }
+});
+
+app.post('/api/jobs/:id/reject', async (req, res) => {
+  try {
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: { status: JobStatus.ACCEPTED }, 
+      include: { worker: true }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job returned to worker for improvements.", job });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to reject job." });
   }
 });
 
