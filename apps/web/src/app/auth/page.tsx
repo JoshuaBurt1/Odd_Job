@@ -35,10 +35,12 @@ export default function AuthPage() {
 
       const user = await response.json();
       
-      // Store user info in localStorage for future API calls
+      // 1. Store user info in localStorage (matches Navbar implementation)
       localStorage.setItem("user", JSON.stringify(user));
       
-      alert(`Successfully ${isLogin ? 'logged in' : 'registered'}! Redirecting to jobs portal...`);
+      // 2. Manually dispatch storage event so the Navbar updates in the current tab
+      window.dispatchEvent(new Event("storage"));
+      
       router.push('/jobs');
       
     } catch (error: any) {

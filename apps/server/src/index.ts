@@ -5,7 +5,6 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import cors from 'cors';
 
-// Debugging check
 console.log("Database Host:", process.env.DB_HOST);
 
 const aivenConfig = {
@@ -36,7 +35,6 @@ const broadcastUpdate = (data: any) => {
   clients.forEach(client => client.write(`data: ${JSON.stringify(data)}\n\n`));
 };
 
-// SSE Stream Endpoint
 app.get('/api/jobs/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -57,11 +55,9 @@ app.get('/api/jobs/stream', (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    
     const user = await prisma.user.create({
       data: { name, email, password }
     });
-    
     res.json({ id: user.id, email: user.email, name: user.name });
   } catch (error) {
     console.error("Registration Error:", error);
@@ -72,7 +68,6 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
     const user = await prisma.user.findUnique({ where: { email } });
     
     if (!user || user.password !== password) {
@@ -86,14 +81,18 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// NEW: User Profile Endpoint
 app.get('/api/users/:id/profile', async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
       include: {
-        acceptedJobs: {
-          where: { status: JobStatus.COMPLETED }
+        workerArchive: {
+          include: { seeker: { select: { name: true } } },
+          orderBy: { completedAt: 'desc' }
+        },
+        seekerArchive: {
+          include: { worker: { select: { name: true } } },
+          orderBy: { completedAt: 'desc' }
         }
       }
     });
@@ -102,14 +101,16 @@ app.get('/api/users/:id/profile', async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const completedJobs = user.acceptedJobs.length;
-    const earnings = user.acceptedJobs.reduce((total, job) => total + job.price, 0);
+    const completedJobs = user.workerArchive.length;
+    const earnings = user.workerArchive.reduce((total, job) => total + job.price, 0);
 
     res.json({
       name: user.name,
       createdAt: user.createdAt,
       completedJobs,
-      earnings
+      earnings,
+      workerComplete: user.workerArchive,
+      seekerComplete: user.seekerArchive
     });
   } catch (error) {
     console.error("Profile Fetch Error:", error);
@@ -127,10 +128,8 @@ app.post('/api/jobs', async (req, res) => {
     });
 
     broadcastUpdate({ type: "REFRESH_JOBS" });
-
     res.json(job);
   } catch (error) {
-    console.error(error);
     res.status(500).json({ error: "Failed to create job" });
   }
 });
@@ -148,12 +147,8 @@ app.get('/api/jobs', async (req, res) => {
         ]
       } : { status: JobStatus.OPEN },
       include: {
-        worker: {
-          select: { name: true }
-        },
-        seeker: {
-          select: { name: true } 
-        }
+        worker: { select: { name: true } },
+        seeker: { select: { name: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -171,20 +166,12 @@ app.post('/api/jobs/:id/accept', async (req, res) => {
     const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const job = await tx.job.findUnique({ where: { id: jobId } });
       
-      if (!job || job.status !== JobStatus.OPEN) {
-        throw new Error("Job is no longer available.");
-      }
-      
-      if (job.seekerId === workerId) {
-        throw new Error("You cannot accept a job you posted.");
-      }
+      if (!job || job.status !== JobStatus.OPEN) throw new Error("Job is no longer available.");
+      if (job.seekerId === workerId) throw new Error("You cannot accept a job you posted.");
 
       return await tx.job.update({
         where: { id: jobId },
-        data: { 
-          status: JobStatus.ACCEPTED,
-          workerId,
-        }
+        data: { status: JobStatus.ACCEPTED, workerId }
       });
     });
     broadcastUpdate({ type: "REFRESH_JOBS" });
@@ -200,17 +187,11 @@ app.post('/api/jobs/:id/cancel', async (req, res) => {
 
   try {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
-    
-    if (!job || job.workerId !== workerId) {
-      throw new Error("Unauthorized to cancel this job.");
-    }
+    if (!job || job.workerId !== workerId) throw new Error("Unauthorized to cancel this job.");
 
     const updatedJob = await prisma.job.update({
       where: { id: jobId },
-      data: { 
-        status: JobStatus.OPEN,
-        workerId: null, 
-      }
+      data: { status: JobStatus.OPEN, workerId: null }
     });
     broadcastUpdate({ type: "REFRESH_JOBS" });
     res.json(updatedJob);
@@ -234,17 +215,43 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
 });
 
 app.post('/api/jobs/:id/approve', async (req, res) => {
+  const jobId = req.params.id;
+
   try {
-    const job = await prisma.job.update({
-      where: { id: req.params.id },
-      data: { status: JobStatus.COMPLETED },
-      include: { worker: true }
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const job = await tx.job.findUnique({ where: { id: jobId }, include: { worker: true } });
+      
+      if (!job || !job.workerId) {
+        throw new Error("Job not found or worker missing.");
+      }
+
+      // 1. Move into CompletedJob archive
+      const completedJob = await tx.completedJob.create({
+        data: {
+          title: job.title,
+          type: job.type,
+          description: job.description,
+          price: job.price,
+          seekerId: job.seekerId,
+          workerId: job.workerId,
+          originalCreatedAt: job.createdAt
+        }
+      });
+
+      // 2. Delete from active Jobs
+      await tx.job.delete({ where: { id: jobId } });
+
+      return { completedJob, worker: job.worker };
     });
+
     broadcastUpdate({ type: "REFRESH_JOBS" });
     
-    console.log(`Processing payment of $${job.price} to worker: ${job.worker?.name}`);
-    res.json({ message: "Job completed and paid successfully.", job });
+    // Simulate PayPal API processing
+    console.log(`[PAYPAL API] Releasing funds: $${result.completedJob.price} to routing ID: ${result.worker?.paymentId || 'DEFAULT_TEST_ID'}`);
+    
+    res.json({ message: "Job completed, archived, and paid successfully.", job: result.completedJob });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: "Failed to approve job." });
   }
 });

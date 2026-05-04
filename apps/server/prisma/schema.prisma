@@ -11,7 +11,7 @@ enum JobStatus {
   OPEN
   ACCEPTED
   AWAITING_EVALUATION
-  COMPLETED
+  // COMPLETED removed since completed jobs now move to a separate table
 }
 
 enum JobType {
@@ -24,14 +24,18 @@ enum JobType {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  password     String   // Added for authentication
-  name         String
-  paymentId    String?  // PayPal/Stripe routing ID for workers
-  createdAt    DateTime @default(now()) // Added for profile registration date
-  postedJobs   Job[]    @relation("SeekerJobs")
-  acceptedJobs Job[]    @relation("WorkerJobs")
+  id              String         @id @default(uuid())
+  email           String         @unique
+  password        String         
+  name            String
+  paymentId       String?        // PayPal/Stripe routing ID for workers
+  createdAt       DateTime       @default(now()) 
+  
+  postedJobs      Job[]          @relation("SeekerJobs")
+  acceptedJobs    Job[]          @relation("WorkerJobs")
+  
+  seekerArchive   CompletedJob[] @relation("SeekerCompleted")
+  workerArchive   CompletedJob[] @relation("WorkerCompleted")
 }
 
 model Job {
@@ -50,4 +54,21 @@ model Job {
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+model CompletedJob {
+  id                String   @id @default(uuid())
+  title             String
+  type              JobType
+  description       String
+  price             Float
+  
+  seekerId          String
+  seeker            User     @relation("SeekerCompleted", fields: [seekerId], references: [id])
+  
+  workerId          String
+  worker            User     @relation("WorkerCompleted", fields: [workerId], references: [id])
+  
+  originalCreatedAt DateTime
+  completedAt       DateTime @default(now())
 }

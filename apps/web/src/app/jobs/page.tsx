@@ -23,7 +23,6 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
   
-  // Job Posting State
   const [isPosting, setIsPosting] = useState(searchParams.get("action") === "post");
   const [newJob, setNewJob] = useState({ title: "", type: "TRASH_CLEANUP", description: "", price: "" });
   const [postError, setPostError] = useState("");
@@ -47,7 +46,7 @@ export default function JobsPage() {
   };
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
+    const storedUser = sessionStorage.getItem("user");
     let currentUser = null;
     
     if (storedUser) {
@@ -84,10 +83,7 @@ export default function JobsPage() {
     e.preventDefault();
     setPostError("");
 
-    if (!user) {
-      router.push("/auth");
-      return;
-    }
+    if (!user) return router.push("/auth");
 
     try {
       const response = await fetch("http://localhost:4000/api/jobs", {
@@ -108,7 +104,6 @@ export default function JobsPage() {
 
   const handleAcceptJob = async (jobId: string) => {
     if (!user) return router.push("/auth");
-    
     try {
       const response = await fetch(`http://localhost:4000/api/jobs/${jobId}/accept`, {
         method: "POST",
@@ -150,9 +145,14 @@ export default function JobsPage() {
   };
 
   const handleApproveJob = async (jobId: string) => {
+    const isConfirmed = window.confirm("Approving this job will finalize it, send it to the archives, and automatically release funds via PayPal. Do you want to continue?");
+    if (!isConfirmed) return;
+
     try {
       const response = await fetch(`http://localhost:4000/api/jobs/${jobId}/approve`, { method: "POST" });
       if (!response.ok) throw new Error("Failed to approve job");
+      
+      alert("Job approved! Funds have been released via PayPal.");
       fetchJobs();
     } catch (error) {
       console.error(error);
@@ -202,18 +202,9 @@ export default function JobsPage() {
   const hasActiveJob = jobs.some(j => j.workerId === user?.id && ['ACCEPTED', 'AWAITING_EVALUATION'].includes(j.status));
   const groupedJobs = groupAndSortJobs();
 
-  // Helper to render appropriate actions/status based on job state and user role
   const renderJobActions = (job: Job) => {
     const isPoster = user?.id === job.seekerId;
     const isWorker = user?.id === job.workerId;
-
-    if (job.status === 'COMPLETED') {
-      return (
-        <button disabled className="w-full py-2 text-sm rounded-md font-medium bg-gray-100 text-gray-500 dark:bg-gray-900/50 dark:text-gray-500 cursor-not-allowed">
-          Completed
-        </button>
-      );
-    }
 
     if (job.status === 'AWAITING_EVALUATION') {
       if (isPoster) {
@@ -237,10 +228,10 @@ export default function JobsPage() {
         return (
           <div className="flex flex-col gap-2 w-full">
             <button disabled className="w-full py-2 text-sm rounded-md font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400 cursor-not-allowed border border-gray-200 dark:border-gray-700">
-              Completed
+              Awaiting Payment
             </button>
             <span className="text-xs text-center text-zinc-500 dark:text-zinc-400 font-medium">
-              awaiting evaluation by poster ({job.seeker?.name})
+              awaiting evaluation by {job.seeker?.name}
             </span>
           </div>
         );
@@ -269,7 +260,6 @@ export default function JobsPage() {
       }
     }
 
-    // Status: OPEN
     if (isPoster) {
       return (
         <button disabled className="w-full py-2 text-sm rounded-md font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400 cursor-not-allowed border border-gray-200 dark:border-gray-700">
