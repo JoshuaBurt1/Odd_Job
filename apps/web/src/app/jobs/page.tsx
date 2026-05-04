@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 type Job = {
   id: string;
@@ -18,14 +18,9 @@ type Job = {
 
 export default function JobsPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
-  
-  const [isPosting, setIsPosting] = useState(searchParams.get("action") === "post");
-  const [newJob, setNewJob] = useState({ title: "", type: "TRASH_CLEANUP", description: "", price: "" });
-  const [postError, setPostError] = useState("");
 
   const fetchJobs = (currentUser: {id: string} | null = user) => {
     setLoading(true);
@@ -46,7 +41,7 @@ export default function JobsPage() {
   };
 
   useEffect(() => {
-    const storedUser = sessionStorage.getItem("user");
+    const storedUser = localStorage.getItem("user"); 
     let currentUser = null;
     
     if (storedUser) {
@@ -78,29 +73,6 @@ export default function JobsPage() {
 
     return () => eventSource.close();
   }, []);
-
-  const handlePostJob = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPostError("");
-
-    if (!user) return router.push("/auth");
-
-    try {
-      const response = await fetch("http://localhost:4000/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newJob, seekerId: user.id })
-      });
-
-      if (!response.ok) throw new Error("Failed to post job.");
-      
-      setNewJob({ title: "", type: "TRASH_CLEANUP", description: "", price: "" });
-      setIsPosting(false);
-      fetchJobs();
-    } catch (error: any) {
-      setPostError(error.message);
-    }
-  };
 
   const handleAcceptJob = async (jobId: string) => {
     if (!user) return router.push("/auth");
@@ -289,10 +261,11 @@ export default function JobsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Open Jobs</h1>
         {user ? (
           <button 
-            onClick={() => setIsPosting(!isPosting)}
+            // CHANGE: Now navigates to the dedicated post route
+            onClick={() => router.push("/jobs/post")}
             className="bg-foreground text-background px-4 py-2 text-sm rounded-full font-medium hover:opacity-90 transition-opacity"
           >
-            {isPosting ? "Cancel Posting" : "+ Post a Job"}
+            + Post a Job
           </button>
         ) : (
           <button 
@@ -304,66 +277,6 @@ export default function JobsPage() {
         )}
       </div>
 
-      {isPosting && user && (
-        <div className="mb-8 p-6 border border-gray-200 dark:border-gray-800 rounded-xl bg-white dark:bg-[#0a0a0a] shadow-sm">
-          <h2 className="text-xl font-bold mb-4">Post a New Job</h2>
-          {postError && <p className="text-red-500 mb-4 text-sm">{postError}</p>}
-          <form onSubmit={handlePostJob} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="col-span-1 md:col-span-2">
-              <label className="block text-xs font-medium mb-1">Job Title</label>
-              <input 
-                type="text" required value={newJob.title}
-                onChange={e => setNewJob({...newJob, title: e.target.value})}
-                className="w-full p-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent"
-                placeholder="e.g. Clean up my front yard"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-xs font-medium mb-1">Job Category</label>
-              <select 
-                value={newJob.type}
-                onChange={e => setNewJob({...newJob, type: e.target.value})}
-                className="w-full p-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent"
-              >
-                <option value="TRASH_CLEANUP">Trash Cleanup</option>
-                <option value="HOME_GARDEN_CLEANUP">Home & Garden Cleanup</option>
-                <option value="GRASS_CUTTING">Grass Cutting</option>
-                <option value="DECK_FENCE_BUILDING">Deck & Fence Building</option>
-                <option value="GARDEN_TENDING">Garden Tending</option>
-                <option value="CROP_PICKING">Crop Picking</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium mb-1">Bounty / Price ($)</label>
-              <input 
-                type="number" min="1" step="0.01" required value={newJob.price}
-                onChange={e => setNewJob({...newJob, price: e.target.value})}
-                className="w-full p-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent"
-                placeholder="50.00"
-              />
-            </div>
-
-            <div className="col-span-1 md:col-span-2">
-              <label className="block text-xs font-medium mb-1">Description</label>
-              <textarea 
-                required rows={3} value={newJob.description}
-                onChange={e => setNewJob({...newJob, description: e.target.value})}
-                className="w-full p-2.5 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent"
-                placeholder="Describe what needs to be done, tools required, etc."
-              />
-            </div>
-
-            <div className="col-span-1 md:col-span-2">
-              <button type="submit" className="w-full bg-black dark:bg-white text-white dark:text-black py-2.5 text-sm rounded-md font-bold hover:opacity-90">
-                Publish Job
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-      
       {loading ? (
         <p className="text-zinc-500 animate-pulse text-sm">Loading available jobs...</p>
       ) : Object.keys(groupedJobs).length === 0 ? (

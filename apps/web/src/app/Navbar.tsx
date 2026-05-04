@@ -46,7 +46,7 @@ export default function Navbar() {
   return (
     <nav className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-800 relative z-50">
       <Link href="/" className="text-2xl font-bold tracking-tight">
-        Oddjob
+        Odd Job
       </Link>
       <div className="flex gap-6 items-center font-medium text-sm">
         <Link href="/jobs" className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
