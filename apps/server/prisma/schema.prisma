@@ -11,7 +11,6 @@ enum JobStatus {
   OPEN
   ACCEPTED
   AWAITING_EVALUATION
-  // COMPLETED removed since completed jobs now move to a separate table
 }
 
 enum JobType {
@@ -29,6 +28,9 @@ model User {
   password        String         
   name            String
   paymentId       String?        // PayPal/Stripe routing ID for workers
+  address         String?
+  userLat         Float?
+  userLong        Float?
   createdAt       DateTime       @default(now()) 
   
   postedJobs      Job[]          @relation("SeekerJobs")
@@ -44,7 +46,13 @@ model Job {
   type        JobType
   description String
   price       Float
-  status      JobStatus @default(OPEN)
+  status      JobStatus @default(OPEN)  
+  startDate   DateTime  @default(now())
+  expiryDate  DateTime
+  address     String?
+  lat         Float?
+  lng         Float?
+  radius      Float?
   
   seekerId    String
   seeker      User      @relation("SeekerJobs", fields: [seekerId], references: [id])

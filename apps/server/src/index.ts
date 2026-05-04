@@ -1,3 +1,4 @@
+// server/src/index.ts
 import 'dotenv/config'; 
 import express from 'express';
 import { PrismaClient, Prisma, JobStatus } from '@prisma/client';
@@ -28,6 +29,38 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // Radius of the earth in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c; // Distance in km
+}
+
+// --- AUTOMATED CLEANUP TASK ---
+setInterval(async () => {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  
+  try {
+    const result = await prisma.job.deleteMany({
+      where: {
+        expiryDate: { lte: sevenDaysAgo }
+      }
+    });
+    if (result.count > 0) {
+      console.log(`[CLEANUP] Deleted ${result.count} expired jobs.`);
+      broadcastUpdate({ type: "REFRESH_JOBS" });
+    }
+  } catch (err) {
+    console.error("[CLEANUP ERROR]", err);
+  }
+}, 1000 * 60 * 60);
+
 // --- REAL-TIME SSE LOGIC ---
 let clients: any[] = [];
 
@@ -51,12 +84,11 @@ app.get('/api/jobs/stream', (req, res) => {
 });
 
 // --- AUTH & USER ENDPOINTS ---
-
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, address, userLat, userLong } = req.body;
     const user = await prisma.user.create({
-      data: { name, email, password }
+      data: { name, email, password, address, userLat, userLong }
     });
     res.json({ id: user.id, email: user.email, name: user.name });
   } catch (error) {
@@ -106,6 +138,9 @@ app.get('/api/users/:id/profile', async (req, res) => {
 
     res.json({
       name: user.name,
+      address: user.address,
+      userLat: user.userLat,
+      userLong: user.userLong,
       createdAt: user.createdAt,
       completedJobs,
       earnings,
@@ -118,34 +153,65 @@ app.get('/api/users/:id/profile', async (req, res) => {
   }
 });
 
-// --- JOB ENDPOINTS ---
+app.put('/api/users/:id/location', async (req, res) => {
+  try {
+    const { address, userLat, userLong } = req.body;
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { address, userLat, userLong }
+    });
+    res.json({ message: "Location updated successfully", user });
+  } catch (error) {
+    console.error("Location Update Error:", error);
+    res.status(500).json({ error: "Failed to update location" });
+  }
+});
 
+// --- JOB ENDPOINTS ---
 app.post('/api/jobs', async (req, res) => {
   try {
-    const { title, type, description, price, seekerId } = req.body;
+    const { title, type, description, price, seekerId, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    
     const job = await prisma.job.create({
-      data: { title, type, description, price: parseFloat(price), seekerId }
+      data: { 
+        title, 
+        type, 
+        description, 
+        price: parseFloat(price), 
+        seekerId,
+        startDate: new Date(startDate),
+        expiryDate: new Date(expiryDate),
+        address,
+        lat,
+        lng,
+        radius: radius ? parseFloat(radius) : null
+      }
     });
 
     broadcastUpdate({ type: "REFRESH_JOBS" });
     res.json(job);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: "Failed to create job" });
   }
 });
 
 app.get('/api/jobs', async (req, res) => {
   const { userId } = req.query;
+  const now = new Date();
 
   try {
     const jobs = await prisma.job.findMany({ 
       where: userId ? {
         OR: [
-          { status: JobStatus.OPEN },
+          { status: JobStatus.OPEN, expiryDate: { gt: now } },
           { seekerId: String(userId) },
           { workerId: String(userId) }
         ]
-      } : { status: JobStatus.OPEN },
+      } : { 
+        status: JobStatus.OPEN,
+        expiryDate: { gt: now }
+      },
       include: {
         worker: { select: { name: true } },
         seeker: { select: { name: true } }
@@ -158,8 +224,52 @@ app.get('/api/jobs', async (req, res) => {
   }
 });
 
+app.get('/api/jobs/:id', async (req, res) => {
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.id },
+      include: {
+        worker: { select: { name: true } },
+        seeker: { select: { name: true } }
+      }
+    });
+    if (!job) return res.status(404).json({ error: "Job not found" });
+    res.json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch job" });
+  }
+});
+
+app.put('/api/jobs/:id', async (req, res) => {
+  try {
+    const { title, type, description, price, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: {
+        title,
+        type,
+        description,
+        price: parseFloat(price),
+        startDate: new Date(startDate),
+        expiryDate: new Date(expiryDate),
+        address,
+        lat,
+        lng,
+        radius: radius ? parseFloat(radius) : null
+      }
+    });
+
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json(job);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to update job" });
+  }
+});
+
 app.post('/api/jobs/:id/accept', async (req, res) => {
-  const { workerId } = req.body;
+  const { workerId, workerLat, workerLng } = req.body; 
   const jobId = req.params.id;
 
   try {
@@ -168,6 +278,17 @@ app.post('/api/jobs/:id/accept', async (req, res) => {
       
       if (!job || job.status !== JobStatus.OPEN) throw new Error("Job is no longer available.");
       if (job.seekerId === workerId) throw new Error("You cannot accept a job you posted.");
+      
+      if (job.radius && job.lat && job.lng) {
+        if (!workerLat || !workerLng) {
+          throw new Error("Location access is required to apply for this job.");
+        }
+        const distance = getDistance(job.lat, job.lng, workerLat, workerLng);
+        if (distance > job.radius) {
+          throw new Error(`You are too far away (${distance.toFixed(1)}km). Max radius is ${job.radius}km.`);
+        }
+      }
+      if (new Date() > job.expiryDate) throw new Error("This job posting has expired.");
 
       return await tx.job.update({
         where: { id: jobId },
@@ -225,7 +346,6 @@ app.post('/api/jobs/:id/approve', async (req, res) => {
         throw new Error("Job not found or worker missing.");
       }
 
-      // 1. Move into CompletedJob archive
       const completedJob = await tx.completedJob.create({
         data: {
           title: job.title,
@@ -238,7 +358,6 @@ app.post('/api/jobs/:id/approve', async (req, res) => {
         }
       });
 
-      // 2. Delete from active Jobs
       await tx.job.delete({ where: { id: jobId } });
 
       return { completedJob, worker: job.worker };
@@ -246,7 +365,6 @@ app.post('/api/jobs/:id/approve', async (req, res) => {
 
     broadcastUpdate({ type: "REFRESH_JOBS" });
     
-    // Simulate PayPal API processing
     console.log(`[PAYPAL API] Releasing funds: $${result.completedJob.price} to routing ID: ${result.worker?.paymentId || 'DEFAULT_TEST_ID'}`);
     
     res.json({ message: "Job completed, archived, and paid successfully.", job: result.completedJob });

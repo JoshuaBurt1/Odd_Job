@@ -1,52 +1,73 @@
-// web/src/app/jobs/post/page.tsx
+//web/src/app/jobs/modify/[id]/page.tsx
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { fetchGeocode } from "@/lib/geocoding";
 
-export default function PostJobPage() {
+export default function ModifyJobPage() {
   const router = useRouter();
-  const [user, setUser] = useState<{id: string, name: string} | null>(null);
+  const params = useParams();
+  const id = params.id as string;
+
+  const [user, setUser] = useState<{ id: string; name: string } | null>(null);
   const [postError, setPostError] = useState("");
-  const [isAddressValid, setIsAddressValid] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isAddressValid, setIsAddressValid] = useState(true);
   const [hasPropertyNumber, setHasPropertyNumber] = useState(true);
 
-  const getDefaultDates = () => {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    return {
-      startDate: today.toISOString().slice(0, 16),
-      expiryDate: tomorrow.toISOString().slice(0, 16),
-      minDate: today.toISOString().slice(0, 16)
-    };
-  };
-
-  const [dates] = useState(getDefaultDates());
-
-  const [formData, setFormData] = useState({ 
-    title: "", 
-    type: "TRASH_CLEANUP", 
-    description: "", 
+  // Setup initial dates to prevent controlled/uncontrolled input warnings
+  const [formData, setFormData] = useState({
+    title: "",
+    type: "TRASH_CLEANUP",
+    description: "",
     price: "",
-    startDate: dates.startDate,
-    expiryDate: dates.expiryDate,
+    startDate: "",
+    expiryDate: "",
     address: "",
     radius: "10",
   });
 
-  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user"); 
+    const storedUser = localStorage.getItem("user");
     if (!storedUser) {
-        router.push("/auth"); 
+      router.push("/auth");
     } else {
-        setUser(JSON.parse(storedUser));
+      setUser(JSON.parse(storedUser));
     }
-  }, [router]);
+
+    // Fetch existing job data
+    fetch(`http://localhost:4000/api/jobs/${id}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Job not found");
+        return res.json();
+      })
+      .then((data) => {
+        setFormData({
+          title: data.title,
+          type: data.type,
+          description: data.description,
+          price: data.price.toString(),
+          // slice(0, 16) is required for <input type="datetime-local" /> format: YYYY-MM-DDTHH:mm
+          startDate: new Date(data.startDate).toISOString().slice(0, 16),
+          expiryDate: new Date(data.expiryDate).toISOString().slice(0, 16),
+          address: data.address || "",
+          radius: data.radius ? data.radius.toString() : "10",
+        });
+
+        if (data.lat && data.lng) {
+          setUserLocation({ lat: data.lat, lng: data.lng });
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error(err);
+        setPostError("Failed to load job details.");
+        setLoading(false);
+      });
+  }, [id, router]);
 
   const handleGeocode = async (query: string, isManualLocate = false) => {
     if (!query) return;
@@ -58,7 +79,7 @@ export default function PostJobPage() {
         setIsAddressValid(true);
         setHasPropertyNumber(result.hasPropertyNumber);
         
-        // Update: Always use the string returned by the API exactly
+        // Update: Overwrite with formatted API string for both Verify and Locate
         setFormData(prev => ({ ...prev, address: result.formatted }));
       } else {
         setIsAddressValid(false);
@@ -80,42 +101,40 @@ export default function PostJobPage() {
     }
   };
 
-  const handlePostJob = async (e: React.FormEvent) => {
+  const handleSaveChanges = async (e: React.FormEvent) => {
     e.preventDefault();
     setPostError("");
-    if (!user) return;
 
-    if (new Date(formData.startDate) < new Date() && formData.startDate !== dates.startDate) {
-       return setPostError("Start date cannot be in the past.");
-    }
+    // Simple validation consistent with PostPage
     if (new Date(formData.expiryDate) <= new Date(formData.startDate)) {
-       return setPostError("Expiry date must be after the start date.");
+      return setPostError("Expiry date must be after the start date.");
     }
 
     try {
-      const response = await fetch("http://localhost:4000/api/jobs", {
-        method: "POST",
+      const response = await fetch(`http://localhost:4000/api/jobs/${id}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          ...formData, 
+        body: JSON.stringify({
+          ...formData,
           price: parseFloat(formData.price),
           radius: parseFloat(formData.radius),
-          seekerId: user.id,
           lat: userLocation?.lat || null,
-          lng: userLocation?.lng || null
-        })
+          lng: userLocation?.lng || null,
+        }),
       });
 
-      if (!response.ok) throw new Error("Failed to post job.");
-      router.push("/jobs"); 
+      if (!response.ok) throw new Error("Failed to update job.");
+      router.push("/jobs");
     } catch (error: any) {
       setPostError(error.message);
     }
   };
 
+  if (loading) return <div className="p-10 text-center text-sm text-zinc-500">Loading editor...</div>;
+
   return (
     <div className="p-6 md:p-10 max-w-2xl mx-auto w-full">
-      <button 
+      <button
         onClick={() => router.push("/jobs")}
         className="mb-6 text-sm text-zinc-500 hover:text-black dark:hover:text-white flex items-center gap-2 transition-colors"
       >
@@ -123,27 +142,35 @@ export default function PostJobPage() {
       </button>
 
       <div className="p-6 border border-gray-200 dark:border-gray-800 rounded-xl bg-white dark:bg-[#0a0a0a] shadow-sm">
-        <h2 className="text-2xl font-bold mb-6">Post a New Job</h2>
+        <h2 className="text-2xl font-bold mb-6">Modify Posting</h2>
         {postError && <p className="text-red-500 mb-4 text-sm">{postError}</p>}
-        
-        <form onSubmit={handlePostJob} className="flex flex-col gap-5">
+
+        <form onSubmit={handleSaveChanges} className="flex flex-col gap-5">
+          {/* Job Title */}
           <div>
-            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Job Title</label>
-            <input 
-              type="text" required value={formData.title}
-              onChange={e => setFormData({...formData, title: e.target.value})}
+            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+              Job Title
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent focus:ring-1 focus:ring-black outline-none"
               placeholder="e.g. Clean up my front yard"
             />
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Category */}
             <div>
-              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Category</label>
-              <select 
+              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+                Category
+              </label>
+              <select
                 value={formData.type}
-                onChange={e => setFormData({...formData, type: e.target.value})}
-                className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
+                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none appearance-none"
               >
                 <option value="TRASH_CLEANUP">Trash Cleanup</option>
                 <option value="HOME_GARDEN_CLEANUP">Home & Garden Cleanup</option>
@@ -154,11 +181,18 @@ export default function PostJobPage() {
               </select>
             </div>
 
+            {/* Bounty */}
             <div>
-              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Bounty ($)</label>
-              <input 
-                type="number" min="1" step="0.01" required value={formData.price}
-                onChange={e => setFormData({...formData, price: e.target.value})}
+              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+                Bounty ($)
+              </label>
+              <input
+                type="number"
+                min="1"
+                step="0.01"
+                required
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                 className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
                 placeholder="50.00"
               />
@@ -166,25 +200,37 @@ export default function PostJobPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Start Date */}
             <div>
-              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Start Date</label>
-              <input 
-                type="datetime-local" required value={formData.startDate} min={dates.minDate}
-                onChange={e => setFormData({...formData, startDate: e.target.value})}
+              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+                Start Date
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={formData.startDate}
+                onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                 className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
               />
             </div>
 
+            {/* Expiry Date */}
             <div>
-              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Expiry Date</label>
-              <input 
-                type="datetime-local" required value={formData.expiryDate} min={formData.startDate || dates.minDate}
-                onChange={e => setFormData({...formData, expiryDate: e.target.value})}
+              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+                Expiry Date
+              </label>
+              <input
+                type="datetime-local"
+                required
+                value={formData.expiryDate}
+                min={formData.startDate}
+                onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
                 className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
               />
             </div>
           </div>
 
+          {/* Address & Geocoding */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-medium uppercase tracking-wider text-zinc-500">Address</label>
@@ -222,62 +268,81 @@ export default function PostJobPage() {
                           hover:bg-zinc-700 active:bg-zinc-800 active:scale-95
                           disabled:bg-zinc-200 disabled:text-zinc-500 disabled:cursor-not-allowed
                           focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-1"
-              >Verify</button>    
-          </div>
+              >Verify</button>
+            </div>
             
             {/* Validation Feedback */}
             {isAddressValid && !hasPropertyNumber && (
               <p className="text-[10px] text-amber-600 mt-1">⚠️ Accuracy warning: House number not detected by map provider.</p>
             )}
             {isAddressValid && <p className="text-[10px] text-emerald-500 mt-1">✓ Location Verified</p>}
-            
+
             <div className="flex gap-4 mt-3">
               <div className="flex-1">
-                <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider text-zinc-400">Latitude</label>
-                <input 
-                  type="number" readOnly value={userLocation?.lat || ""} 
-                  className="w-full p-2 text-xs border border-gray-300 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-zinc-900 text-gray-500 outline-none" 
+                <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider text-zinc-400">
+                  Latitude
+                </label>
+                <input
+                  type="number"
+                  readOnly
+                  value={userLocation?.lat || ""}
+                  className="w-full p-2 text-xs border border-gray-300 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-zinc-900 text-gray-500 outline-none"
                   placeholder="Auto-populated"
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider text-zinc-400">Longitude</label>
-                <input 
-                  type="number" readOnly value={userLocation?.lng || ""} 
-                  className="w-full p-2 text-xs border border-gray-300 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-zinc-900 text-gray-500 outline-none" 
+                <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider text-zinc-400">
+                  Longitude
+                </label>
+                <input
+                  type="number"
+                  readOnly
+                  value={userLocation?.lng || ""}
+                  className="w-full p-2 text-xs border border-gray-300 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-zinc-900 text-gray-500 outline-none"
                   placeholder="Auto-populated"
                 />
               </div>
             </div>
           </div>
 
+          {/* Radius Limit */}
           <div>
             <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
               Worker Radius Limit (km)
             </label>
-            <input 
-              type="number" 
-              min="1" 
+            <input
+              type="number"
+              min="1"
               value={formData.radius}
-              onChange={e => setFormData({...formData, radius: e.target.value})}
+              onChange={(e) => setFormData({ ...formData, radius: e.target.value })}
               className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
               placeholder="e.g. 15"
             />
-            <p className="text-[10px] text-zinc-400 mt-1">Workers outside this range cannot apply.</p>
+            <p className="text-[10px] text-zinc-400 mt-1">
+              Workers outside this range cannot apply.
+            </p>
           </div>
 
+          {/* Description */}
           <div>
-            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Description</label>
-            <textarea 
-              required rows={5} value={formData.description}
-              onChange={e => setFormData({...formData, description: e.target.value})}
+            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+              Description
+            </label>
+            <textarea
+              required
+              rows={5}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none resize-none"
               placeholder="Describe tools required, timeframe, etc."
             />
           </div>
 
-          <button type="submit" className="w-full bg-black dark:bg-white text-white dark:text-black py-3 text-sm rounded-md font-bold hover:opacity-90 transition-opacity mt-2">
-            Publish Job Listing
+          <button
+            type="submit"
+            className="w-full bg-black dark:bg-white text-white dark:text-black py-3 text-sm rounded-md font-bold hover:opacity-90 transition-opacity mt-2"
+          >
+            Save Changes
           </button>
         </form>
       </div>
