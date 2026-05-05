@@ -422,11 +422,11 @@ export default function JobsPage() {
                       <div className="flex gap-4">
                         <div className="flex gap-1">
                           <span className="text-zinc-400">Posted:</span>
-                          <span>{new Date(job.createdAt).toLocaleDateString()}</span>
+                          <span>{new Date(job.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
                         </div>
                         <div className="flex gap-1">
                           <span className="text-zinc-400">Expires:</span>
-                          <span className="text-orange-600/80 dark:text-orange-400/80">{new Date(job.expiryDate).toLocaleDateString()}</span>
+                          <span className="text-orange-600/80 dark:text-orange-400/80">{new Date(job.expiryDate).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
                         </div>
                       </div>
 

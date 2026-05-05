@@ -33,7 +33,6 @@ export const JOB_CATEGORIES = [
   {
     label: "Transportation",
     options: [
-      { value: "FOOD_DELIVERY", label: "Food delivery" },
       { value: "PACKAGE_DELIVERY", label: "Package delivery" },
       { value: "TAXI_SERVICE", label: "Taxi service" },
     ],

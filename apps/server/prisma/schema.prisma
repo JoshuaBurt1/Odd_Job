@@ -1,6 +1,6 @@
 generator client {
-  provider        = "prisma-client-js"
-  output          = "../../../node_modules/.prisma/client"
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -34,27 +34,34 @@ enum JobType {
   DECK_FENCE_BUILDING
 
   // Transportation
-  FOOD_DELIVERY
   PACKAGE_DELIVERY
   TAXI_SERVICE
 }
 
 model User {
-  id              String         @id @default(uuid())
-  email           String         @unique
-  password        String         
-  name            String
-  paymentId       String?        // PayPal/Stripe routing ID for workers
-  address         String?
-  userLat         Float?
-  userLong        Float?
-  createdAt       DateTime       @default(now()) 
-  
-  postedJobs      Job[]          @relation("SeekerJobs")
-  acceptedJobs    Job[]          @relation("WorkerJobs")
-  
-  seekerArchive   CompletedJob[] @relation("SeekerCompleted")
-  workerArchive   CompletedJob[] @relation("WorkerCompleted")
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  name          String
+  paymentId     String?   
+  address       String?
+  userLat       Float?
+  userLong      Float?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  // Quality Tracking: Seeker (The person posting/paying)
+  seekerRating      Float @default(0)
+  seekerReviewCount Int   @default(0)
+
+  // Quality Tracking: Worker (The person doing the task)
+  workerRating      Float @default(0)
+  workerReviewCount Int   @default(0)
+
+  postedJobs    Job[]     @relation("SeekerJobs")
+  acceptedJobs  Job[]     @relation("WorkerJobs")
+
+  seekerArchive CompletedJob[] @relation("SeekerCompleted")
+  workerArchive CompletedJob[] @relation("WorkerCompleted")
 }
 
 model Job {
@@ -63,22 +70,25 @@ model Job {
   type        JobType
   description String
   price       Float
-  status      JobStatus @default(OPEN)  
-  startDate   DateTime  @default(now())
-  expiryDate  DateTime
+  status      JobStatus @default(OPEN)
+  
+  timezone    String    @default("UTC")
+  startDate   DateTime  @default(now()) @db.Timestamptz(3)
+  expiryDate  DateTime  @db.Timestamptz(3)
+  
   address     String?
   lat         Float?
   lng         Float?
   radius      Float?
-  
+
   seekerId    String
   seeker      User      @relation("SeekerJobs", fields: [seekerId], references: [id])
-  
+
   workerId    String?
   worker      User?     @relation("WorkerJobs", fields: [workerId], references: [id])
-  
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
 }
 
 model CompletedJob {
@@ -87,13 +97,14 @@ model CompletedJob {
   type              JobType
   description       String
   price             Float
-  
+  timezone          String   @default("UTC")
+
   seekerId          String
   seeker            User     @relation("SeekerCompleted", fields: [seekerId], references: [id])
-  
+
   workerId          String
   worker            User     @relation("WorkerCompleted", fields: [workerId], references: [id])
-  
-  originalCreatedAt DateTime
-  completedAt       DateTime @default(now())
+
+  originalCreatedAt DateTime @db.Timestamptz(3)
+  completedAt       DateTime @default(now()) @db.Timestamptz(3)
 }

@@ -26,6 +26,7 @@ export default function ModifyJobPage() {
     expiryDate: "",
     address: "",
     radius: "10",
+    seekerId: "",
   });
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -56,6 +57,7 @@ export default function ModifyJobPage() {
           expiryDate: new Date(data.expiryDate).toISOString().slice(0, 16),
           address: data.address || "",
           radius: data.radius ? data.radius.toString() : "10",
+          seekerId: data.seekerId,
         });
 
         if (data.lat && data.lng) {
@@ -125,6 +127,29 @@ export default function ModifyJobPage() {
       });
 
       if (!response.ok) throw new Error("Failed to update job.");
+      router.push("/jobs");
+    } catch (error: any) {
+      setPostError(error.message);
+    }
+  };
+
+  const handleDeleteJob = async () => {
+    if (!user?.id || user.id !== formData.seekerId) return;
+    if (!window.confirm("Are you sure you want to delete this job? This action cannot be undone.")) return;
+
+    setPostError("");
+    try {
+      const response = await fetch(`http://localhost:4000/api/jobs/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to delete job.");
+      }
+
       router.push("/jobs");
     } catch (error: any) {
       setPostError(error.message);
@@ -350,12 +375,23 @@ export default function ModifyJobPage() {
             />
           </div>
 
-          <button
-            type="submit"
-            className="w-full bg-black dark:bg-white text-white dark:text-black py-3 text-sm rounded-md font-bold hover:opacity-90 transition-opacity mt-2"
-          >
-            Save Changes
-          </button>
+          <div className="flex gap-4 mt-2">
+            <button
+              type="submit"
+              className="flex-1 bg-black dark:bg-white text-white dark:text-black py-3 text-sm rounded-md font-bold hover:opacity-90 transition-opacity"
+            >
+              Save Changes
+            </button>
+            {user?.id === formData.seekerId && (
+              <button
+                type="button"
+                onClick={handleDeleteJob}
+                className="flex-1 bg-red-600 dark:bg-red-700 text-white py-3 text-sm rounded-md font-bold hover:bg-red-700 dark:hover:bg-red-800 transition-colors"
+              >
+                Delete Job
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </div>

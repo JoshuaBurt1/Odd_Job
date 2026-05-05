@@ -35,8 +35,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
     Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c; // Distance in km
 }
@@ -136,11 +135,18 @@ app.get('/api/users/:id/profile', async (req, res) => {
     const completedJobs = user.workerArchive.length;
     const earnings = user.workerArchive.reduce((total, job) => total + job.price, 0);
 
+    // Injecting all the new User model fields
     res.json({
       name: user.name,
+      email: user.email,
+      paymentId: user.paymentId,
       address: user.address,
       userLat: user.userLat,
       userLong: user.userLong,
+      seekerRating: user.seekerRating,
+      seekerReviewCount: user.seekerReviewCount,
+      workerRating: user.workerRating,
+      workerReviewCount: user.workerReviewCount,
       createdAt: user.createdAt,
       completedJobs,
       earnings,
@@ -164,6 +170,20 @@ app.put('/api/users/:id/location', async (req, res) => {
   } catch (error) {
     console.error("Location Update Error:", error);
     res.status(500).json({ error: "Failed to update location" });
+  }
+});
+
+app.put('/api/users/:id/payment', async (req, res) => {
+  try {
+    const { paymentId } = req.body;
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { paymentId }
+    });
+    res.json({ message: "Payment details updated successfully", user });
+  } catch (error) {
+    console.error("Payment Update Error:", error);
+    res.status(500).json({ error: "Failed to update payment details" });
   }
 });
 
@@ -265,6 +285,30 @@ app.put('/api/jobs/:id', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to update job" });
+  }
+});
+
+app.delete('/api/jobs/:id', async (req, res) => {
+  const { userId } = req.body;
+  const jobId = req.params.id;
+
+  try {
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return res.status(404).json({ error: "Job not found." });
+    }
+    
+    if (job.seekerId !== userId) {
+      return res.status(403).json({ error: "Unauthorized. Only the user who posted the job can delete it." });
+    }
+
+    await prisma.job.delete({ where: { id: jobId } });
+    
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job successfully deleted." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to delete job." });
   }
 });
 
