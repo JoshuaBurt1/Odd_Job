@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { fetchGeocode } from "@/lib/geocoding";
+import { JOB_CATEGORIES } from "@/lib/jobTypes";
 
 export default function ModifyJobPage() {
   const router = useRouter();
@@ -18,7 +19,7 @@ export default function ModifyJobPage() {
   // Setup initial dates to prevent controlled/uncontrolled input warnings
   const [formData, setFormData] = useState({
     title: "",
-    type: "TRASH_CLEANUP",
+    type: "DECK_FENCE_BUILDING",
     description: "",
     price: "",
     startDate: "",
@@ -162,38 +163,49 @@ export default function ModifyJobPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Category */}
+            {/* Category Selection */}
             <div>
               <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
                 Category
               </label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none appearance-none"
-              >
-                <option value="TRASH_CLEANUP">Trash Cleanup</option>
-                <option value="HOME_GARDEN_CLEANUP">Home & Garden Cleanup</option>
-                <option value="GRASS_CUTTING">Grass Cutting</option>
-                <option value="DECK_FENCE_BUILDING">Deck & Fence Building</option>
-                <option value="GARDEN_TENDING">Garden Tending</option>
-                <option value="CROP_PICKING">Crop Picking</option>
-              </select>
+              <div className="relative group">
+                <select 
+                  value={formData.type}
+                  onChange={e => setFormData({...formData, type: e.target.value})}
+                  className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-zinc-900 outline-none appearance-none pr-10 focus:ring-2 focus:ring-zinc-500/20 transition-all cursor-pointer"
+                >
+                  <option value="" disabled>Select a service...</option>
+                  {JOB_CATEGORIES.map((cat) => (
+                    <optgroup key={cat.label} label={cat.label} className="bg-gray-100 dark:bg-zinc-800 font-bold">
+                      {cat.options.map((opt) => (
+                        <option key={opt.value} value={opt.value} className="bg-white dark:bg-zinc-900 font-normal">
+                          {opt.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-zinc-500 group-hover:text-zinc-300">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
             </div>
 
-            {/* Bounty */}
+            {/* Bounty Amount */}
             <div>
               <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
                 Bounty ($)
               </label>
-              <input
-                type="number"
-                min="1"
-                step="0.01"
-                required
+              <input 
+                type="number" 
+                min="1" 
+                step="0.01" 
+                required 
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
+                onChange={e => setFormData({...formData, price: e.target.value})}
+                className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-zinc-900 outline-none focus:ring-2 focus:ring-zinc-500/20 transition-all"
                 placeholder="50.00"
               />
             </div>

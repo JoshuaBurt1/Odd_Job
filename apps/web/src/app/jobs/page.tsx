@@ -1,6 +1,8 @@
+// web/src/app/jobs/page.tsx
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { fetchGeocode } from "../../lib/geocoding";
 
 type Job = {
   id: string;
@@ -41,7 +43,12 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
   
+  // Geolocation State
   const [userLocation, setUserLocation] = useState({ lat: 43.6548, lng: -79.3884, name: "Toronto (Default)" });
+  const [locationSource, setLocationSource] = useState<"DEFAULT" | "PROFILE" | "GPS" | "MANUAL" | "SAVED">("DEFAULT");
+  const [addressInput, setAddressInput] = useState("");
+  const [locErrorMsg, setLocErrorMsg] = useState("");
+
   const [filterRadius, setFilterRadius] = useState<number>(50);
   const [isRadiusFilterActive, setIsRadiusFilterActive] = useState<boolean>(false);
 
@@ -63,25 +70,92 @@ export default function JobsPage() {
       });
   };
 
+  const handleGeocode = async () => {
+    if (!addressInput) return;
+    const res = await fetchGeocode(addressInput);
+    if (res) {
+      const newLoc = { lat: res.lat, lng: res.lng, name: res.formatted };
+      setUserLocation(newLoc);
+      setLocationSource("MANUAL");
+      localStorage.setItem("lastLocation", JSON.stringify(newLoc)); // Save instantly
+      setLocErrorMsg("");
+      setAddressInput("");
+    } else {
+      setLocErrorMsg("Could not find coordinates for this address.");
+    }
+  };
+
+  const handleGeolocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude, name: "Device GPS Location" };
+          setUserLocation(newLoc);
+          setLocationSource("GPS");
+          localStorage.setItem("lastLocation", JSON.stringify(newLoc)); // Save instantly
+          setLocErrorMsg("");
+        },
+        () => setLocErrorMsg("Geolocation failed or was denied.")
+      );
+    } else {
+      setLocErrorMsg("Geolocation is not supported by your browser.");
+    }
+  };
+
+  // Initialization Effect: Load User, Jobs, and Location efficiently
   useEffect(() => {
+    // 1. Load User & Fetch Jobs
     const storedUser = localStorage.getItem("user");
     let currentUser = null;
-    
     if (storedUser) {
       currentUser = JSON.parse(storedUser);
       setUser(currentUser);
-
-      fetch(`http://localhost:4000/api/users/${currentUser.id}/profile`)
-        .then((res) => res.json())
-        .then((data) => {
-            if (data.userLat && data.userLong) {
-              setUserLocation({ lat: data.userLat, lng: data.userLong, name: data.address || "Your Location" });
-            }
-        })
-        .catch((err) => console.error("Failed to fetch profile location", err));
     }
     fetchJobs(currentUser);
-  }, []);
+
+    // 2. Resolve Location Hierarchy: LocalStorage -> GPS -> Profile
+    const storedLoc = localStorage.getItem("lastLocation");
+    
+    if (storedLoc) {
+      // Fast path: Load from local storage
+      setUserLocation(JSON.parse(storedLoc));
+      setLocationSource("SAVED");
+    } else {
+      // Helper function for profile fallback
+      const fetchProfileLocation = (userId: string) => {
+        fetch(`http://localhost:4000/api/users/${userId}/profile`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.userLat && data.userLong) {
+              const profileLoc = { lat: data.userLat, lng: data.userLong, name: data.address || "Your Profile Location" };
+              setUserLocation(profileLoc);
+              setLocationSource("PROFILE");
+              localStorage.setItem("lastLocation", JSON.stringify(profileLoc)); // Cache it for next time
+            }
+          })
+          .catch((err) => console.error("Failed to fetch profile location", err));
+      };
+
+      // Try GPS first if supported
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const gpsLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude, name: "Device GPS Location" };
+            setUserLocation(gpsLoc);
+            setLocationSource("GPS");
+            localStorage.setItem("lastLocation", JSON.stringify(gpsLoc));
+          },
+          () => {
+            // GPS Denied: Fallback to profile if user is logged in
+            if (currentUser) fetchProfileLocation(currentUser.id);
+          }
+        );
+      } else if (currentUser) {
+        // No GPS Support: Fallback to profile
+        fetchProfileLocation(currentUser.id);
+      }
+    }
+  }, []); // Empty dependency array ensures this single-pass initialization only runs on mount
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -221,34 +295,77 @@ export default function JobsPage() {
         )}
       </div>
 
-      <div className="mb-8 p-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50 dark:bg-[#111] flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider mb-1">Current Location</p>
-          <p className="font-bold">{userLocation.name}</p>
-          <p className="text-xs text-zinc-500 font-mono mt-1">Lat: {userLocation.lat.toFixed(4)} | Lng: {userLocation.lng.toFixed(4)}</p>
+      <div className="mb-8 p-4 border border-gray-200 dark:border-gray-800 rounded-xl bg-gray-50 dark:bg-[#111] flex flex-col gap-5">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider mb-1">Current Location</p>
+            <p className="font-bold text-lg">{userLocation.name}</p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-xs text-zinc-500 font-mono">
+                Lat: {userLocation.lat.toFixed(4)} | Lng: {userLocation.lng.toFixed(4)}
+              </p>
+              <span className="text-xs font-semibold ml-2">
+                {locationSource === 'GPS' && <span className="text-green-600 dark:text-green-400">📍 Location Services</span>}
+                {locationSource === 'MANUAL' && <span className="text-blue-600 dark:text-blue-400">🏠 User Entered Address</span>}
+                {locationSource === 'PROFILE' && <span className="text-purple-600 dark:text-purple-400">👤 Profile Default</span>}
+                {locationSource === 'SAVED' && <span className="text-amber-600 dark:text-amber-400">💾 Saved Location</span>}
+                {locationSource === 'DEFAULT' && <span className="text-gray-500 dark:text-gray-400">🌐 System Default</span>}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 w-full md:w-auto bg-white dark:bg-black p-2 md:p-3 rounded-lg border border-gray-200 dark:border-gray-800">
+            <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isRadiusFilterActive}
+                onChange={(e) => setIsRadiusFilterActive(e.target.checked)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+              />
+              Limit search radius
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="500"
+              value={filterRadius}
+              onChange={(e) => setFilterRadius(Number(e.target.value))}
+              disabled={!isRadiusFilterActive}
+              className="border border-gray-300 dark:border-gray-700 rounded p-1 w-16 text-center text-sm dark:bg-[#222] disabled:opacity-50"
+            />
+            <span className="text-sm font-medium text-zinc-500">km</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto bg-white dark:bg-black p-2 md:p-3 rounded-lg border border-gray-200 dark:border-gray-800">
-          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isRadiusFilterActive}
-              onChange={(e) => setIsRadiusFilterActive(e.target.checked)}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+        <div className="pt-4 border-t border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 flex gap-2">
+            <input 
+              type="text" 
+              value={addressInput}
+              onChange={(e) => setAddressInput(e.target.value)}
+              className="flex-1 p-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black focus:outline-none focus:ring-2 focus:ring-foreground/20 text-sm" 
+              placeholder="Enter new address to search..." 
             />
-            Limit search radius
-          </label>
-          <input
-            type="number"
-            min="1"
-            max="500"
-            value={filterRadius}
-            onChange={(e) => setFilterRadius(Number(e.target.value))}
-            disabled={!isRadiusFilterActive}
-            className="border border-gray-300 dark:border-gray-700 rounded p-1 w-16 text-center text-sm dark:bg-[#222] disabled:opacity-50"
-          />
-          <span className="text-sm font-medium text-zinc-500">km</span>
+            <button 
+              type="button" 
+              onClick={handleGeocode}
+              className="px-4 py-2 bg-zinc-200 dark:bg-zinc-800 text-sm font-medium rounded-lg hover:bg-zinc-300 dark:hover:bg-zinc-700"
+            >
+              Verify
+            </button>
+          </div>
+          <div className="flex items-center justify-center text-xs text-gray-500 font-medium px-2">OR</div>
+          <button 
+            type="button" 
+            onClick={handleGeolocation}
+            className="w-full sm:w-auto px-4 py-2 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 text-sm font-semibold rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors whitespace-nowrap"
+          >
+            📍 Use My GPS
+          </button>
         </div>
+        {locErrorMsg && (
+          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{locErrorMsg}</p>
+        )}
       </div>
 
       {loading ? (

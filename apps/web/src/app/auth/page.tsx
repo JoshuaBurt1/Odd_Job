@@ -1,3 +1,4 @@
+// web/src/app/auth/page.tsx
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -73,9 +74,22 @@ export default function AuthPage() {
 
       const user = await response.json();
       
+      // 1. Save the standard user object
       localStorage.setItem("user", JSON.stringify(user));
-      window.dispatchEvent(new Event("storage"));
+
+      const finalLat = userLat || user.userLat || user.lat;
+      const finalLng = userLong || user.userLong || user.lng;
+      const finalAddress = address || user.address || "Saved Location";
+
+      if (finalLat && finalLng) {
+        localStorage.setItem("lastLocation", JSON.stringify({
+          lat: finalLat,
+          lng: finalLng,
+          name: finalAddress
+        }));
+      }
       
+      window.dispatchEvent(new Event("storage"));
       router.push('/jobs');
       
     } catch (error: any) {

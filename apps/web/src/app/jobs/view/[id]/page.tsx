@@ -41,7 +41,7 @@ export default function ViewJobPage() {
   
   const [job, setJob] = useState<Job | null>(null);
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
-  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [userLocation, setUserLocation] = useState<{lat: number, lng: number, address?: string, hasStoredLocation: boolean} | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchJob = () => {
@@ -61,18 +61,44 @@ export default function ViewJobPage() {
     const storedUser = localStorage.getItem("user");
     if (storedUser) setUser(JSON.parse(storedUser));
     
-    if ("geolocation" in navigator) {
+    const storedLocationStr = localStorage.getItem("lastLocation");
+    let hasStored = false;
+
+    if (storedLocationStr) {
+      try {
+        const parsedLoc = JSON.parse(storedLocationStr);
+        if (parsedLoc && parsedLoc.lat && parsedLoc.lng) {
+          setUserLocation({ 
+            lat: parsedLoc.lat, 
+            lng: parsedLoc.lng, 
+            address: parsedLoc.name || "", 
+            hasStoredLocation: true 
+          });
+          hasStored = true;
+        }
+      } catch (e) {
+        console.error("Failed to parse stored lastLocation", e);
+      }
+    }
+
+    // Fallback to browser geolocation if no local storage location is found
+    if (!hasStored && "geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
-        (position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
+        (position) => setUserLocation({ 
+          lat: position.coords.latitude, 
+          lng: position.coords.longitude, 
+          address: "", 
+          hasStoredLocation: false 
+        }),
         (err) => console.error("Error getting location", err)
       );
     }
+    
     fetchJob();
   }, [id]);
 
   useEffect(() => {
     if (typeof window !== "undefined" && !loading && job?.lat && job?.lng && mapRef.current) {
-      // Inside the second useEffect, after importing (L)
       import("leaflet").then((L) => {
         if ((mapRef.current as any)._leaflet_id) return;
 
@@ -99,13 +125,20 @@ export default function ViewJobPage() {
         if (userLocation) {
           const redIcon = L.icon({
             iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', // Added shadow for consistency
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
             iconSize: [25, 41],
             iconAnchor: [12, 41],
             popupAnchor: [1, -34],
             shadowSize: [41, 41]
           });
-          L.marker([userLocation.lat, userLocation.lng], { icon: redIcon }).addTo(map).bindPopup('<b>Your Location</b>');
+
+          const addressText = (userLocation.hasStoredLocation && userLocation.address) 
+            ? userLocation.address 
+            : "no user location";
+
+          L.marker([userLocation.lat, userLocation.lng], { icon: redIcon })
+            .addTo(map)
+            .bindPopup(`<b>Your Location</b><br/>${addressText}`);
           
           const bounds = L.latLngBounds([[job.lat!, job.lng!], [userLocation.lat, userLocation.lng]]);
           map.fitBounds(bounds, { padding: [50, 50] });
@@ -235,7 +268,7 @@ export default function ViewJobPage() {
             </div>
           </div>
 
-          <div className="lg:col-span-7 h-[500px] lg:h-[600px] bg-gray-100 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden relative shadow-inner">
+          <div className="lg:col-span-7 h-125 lg:h-150 bg-gray-100 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden relative shadow-inner">
             {job.lat && job.lng ? (
               <div ref={mapRef} className="w-full h-full z-0" />
             ) : (
