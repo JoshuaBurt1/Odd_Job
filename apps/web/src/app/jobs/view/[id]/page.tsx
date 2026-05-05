@@ -1,9 +1,17 @@
 // web/src/app/jobs/view/[id]/page.tsx
+
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import 'leaflet/dist/leaflet.css';
+import { COMMON_TIMEZONES } from "@/lib/timezones";
+
+export interface TimezoneOption {
+  value: string;
+  label: string;
+}
 
 type Job = {
   id: string;
@@ -22,6 +30,7 @@ type Job = {
   radius?: number | null;
   seekerId: string;
   seeker?: { 
+    id: string;
     name: string;
     seekerRating?: number;
     seekerReviewCount?: number;
@@ -38,7 +47,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
-//ensures the date is rendered according to the Job's timezone, not the worker User's local browser time.
+// ensures the date is rendered according to the Job's timezone, not the worker User's local browser time.
 const formatJobDate = (dateString: string, tz: string) => {
   try {
     return new Date(dateString).toLocaleString(undefined, {
@@ -226,18 +235,19 @@ export default function ViewJobPage() {
   const dist = (job.lat && job.lng && userLocation) ? calculateDistance(userLocation.lat, userLocation.lng, job.lat, job.lng) : null;
 
   return (
-    <div className="p-6 md:p-10 max-w-7xl mx-auto w-full">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto w-full">
       <button
         onClick={() => router.push("/jobs")}
-        className="mb-6 text-sm text-zinc-500 hover:text-black dark:hover:text-white flex items-center gap-2 transition-colors"
+        className="mb-4 text-sm text-zinc-500 hover:text-black dark:hover:text-white flex items-center gap-2 transition-colors"
       >
         ← Back to Jobs
       </button>
 
-      <div className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm overflow-hidden p-6 md:p-10">
-        <div className="flex justify-between items-start mb-8">
+      <div className="bg-white dark:bg-[#0a0a0a] border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm overflow-hidden p-6">
+        {/* Header Section with Price and Action Buttons */}
+        <div className="flex justify-between items-start mb-5">
           <div>
-            <h1 className="text-4xl font-bold mb-3">{job.title}</h1>
+            <h1 className="text-3xl font-bold mb-3">{job.title}</h1>
             <div className="flex items-center gap-3">
               <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-semibold uppercase tracking-wider">
                 {job.type.replace(/_/g, ' ')}
@@ -251,27 +261,72 @@ export default function ViewJobPage() {
               {job.radius && <span>• Max Radius: {job.radius} km</span>}
             </div>
           </div>
-          <div className="text-right">
-            <span className="block text-4xl font-bold text-green-600 dark:text-green-400">
+
+          <div className="text-right flex flex-col items-end gap-3">
+            <span className="block text-3xl font-bold text-green-600 dark:text-green-400">
               ${job.price.toFixed(2)}
             </span>
+            
+            {/* Conditional Action Buttons moved under payment */}
+            <div className="flex flex-col gap-2 w-full min-w-[160px]">
+              {job.status === 'OPEN' && !isPoster && !isExpired && (
+                <button onClick={handleAcceptJob} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-colors shadow-sm">
+                  Accept Job
+                </button>
+              )}
+              {job.status === 'ACCEPTED' && isWorker && (
+                <>
+                  <button onClick={handleCompleteJob} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:opacity-90">
+                    Mark Complete
+                  </button>
+                  <button onClick={handleCancelJob} className="text-xs text-red-500 hover:underline transition-colors mt-1">
+                    Cancel Job
+                  </button>
+                </>
+              )}
+              {job.status === 'AWAITING_EVALUATION' && isPoster && (
+                <div className="flex flex-col gap-2 w-full">
+                  <button onClick={handleApproveJob} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-green-600 text-white hover:bg-green-700">
+                    Approve & Pay
+                  </button>
+                  <button onClick={handleRejectJob} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-red-100 text-red-600 hover:bg-red-200">
+                    Needs Work
+                  </button>
+                </div>
+              )}
+              {isPoster && job.status === 'OPEN' && (
+                <button onClick={() => router.push(`/jobs/modify/${job.id}`)} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors">
+                  Modify Posting
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 border-t border-gray-100 dark:border-gray-900 pt-8">
-          <div className="lg:col-span-5 space-y-8">
+        {/* Content Grid: Description & Map */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 border-t border-gray-100 dark:border-gray-900 pt-8">
+          <div className="lg:col-span-4 space-y-6">
             <div>
-              <h3 className="font-bold text-xs text-zinc-400 uppercase tracking-widest mb-4">Description</h3>
-              <p className="text-lg text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap italic">
+              <h3 className="font-bold text-xs text-zinc-400 uppercase tracking-widest mb-3">Description</h3>
+              <p className="text-base text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap italic bg-zinc-50/50 dark:bg-zinc-900/30 p-4 rounded-lg border border-zinc-100/50 dark:border-zinc-800/50">
                 "{job.description}"
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 text-sm bg-gray-50 dark:bg-zinc-900/50 p-6 rounded-xl border border-gray-100 dark:border-gray-800">
-              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+            <div className="grid grid-cols-1 gap-4 text-sm bg-gray-50 dark:bg-zinc-900/50 p-5 rounded-xl border border-gray-100 dark:border-gray-800">
+              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2.5">
                 <span className="text-zinc-500">Posted By</span>
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold">{job.seeker?.name || 'Unknown'}</span>
+                  {job.seeker ? (
+                    <Link 
+                      href={`/users/${job.seeker.id}`}
+                      className="font-semibold text-blue-600 dark:text-blue-400 hover:underline transition-colors"
+                    >
+                      {job.seeker.name}
+                    </Link>
+                  ) : (
+                    <span className="font-semibold">Unknown</span>
+                  )}
                   {job.seeker && job.seeker.seekerReviewCount !== undefined && (
                     <span className="text-amber-500 text-xs font-medium flex items-center" title={`${job.seeker.seekerReviewCount} Reviews`}>
                       ★ {job.seeker.seekerRating?.toFixed(1) || "0.0"} <span className="text-zinc-400 ml-1">({job.seeker.seekerReviewCount})</span>
@@ -280,67 +335,45 @@ export default function ViewJobPage() {
                 </div>
               </div>
 
-              {/* Start Date & Time */}
-              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2.5">
                 <span className="text-zinc-500">Work Starts</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
                   {formatJobDate(job.startDate, job.timezone)}
                 </span>
               </div>
 
-              {/* Expiry Date & Time */}
-              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2.5">
                 <span className="text-zinc-500">Deadline</span>
-                <span className="font-semibold text-orange-600/80">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">
                   {formatJobDate(job.expiryDate, job.timezone)}
                 </span>
               </div>
 
-              {/* Explicit Timezone Info */}
-              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2.5">
                 <span className="text-zinc-500">Timezone</span>
-                <span className="font-mono text-[10px] uppercase">{job.timezone}</span>
+                <span className="font-medium text-[11px] text-zinc-600 dark:text-zinc-400 text-right">
+                  {/* Mapping the value to the label from the shared lib */}
+                  {COMMON_TIMEZONES.find(tz => tz.value === job.timezone)?.label || job.timezone}
+                </span>
               </div>
 
               <div className="flex justify-between">
                 <span className="text-zinc-500">Location</span>
-                <span className="font-semibold">{job.address || 'Location Hidden'}</span>
+                <span className="font-semibold text-right">{job.address || 'Location Hidden'}</span>
               </div>
             </div>
           </div>
 
-          <div className="lg:col-span-7 h-125 lg:h-150 bg-gray-100 dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden relative shadow-inner">
-            {job.lat && job.lng ? (
-              <div ref={mapRef} className="w-full h-full z-0" />
-            ) : (
-              <div className="flex items-center justify-center w-full h-full text-gray-500">Location data unavailable</div>
-            )}
+          {/* Enlarged Map Section */}
+          <div className="lg:col-span-8">
+            <div className="w-full h-130 bg-gray-100 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden relative shadow-inner">
+              {job.lat && job.lng ? (
+                <div ref={mapRef} className="w-full h-full z-0" />
+              ) : (
+                <div className="flex items-center justify-center w-full h-full text-gray-500">Location data unavailable</div>
+              )}
+            </div>
           </div>
-        </div>
-
-        <div className="mt-10 pt-8 border-t border-gray-100 dark:border-gray-900 flex justify-end gap-4">
-          {job.status === 'OPEN' && !isPoster && !isExpired && (
-            <button onClick={handleAcceptJob} className="px-10 py-3 text-sm rounded-md font-bold bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-colors">
-              Accept Job
-            </button>
-          )}
-          {job.status === 'ACCEPTED' && isWorker && (
-            <>
-              <button onClick={handleCancelJob} className="px-6 py-3 text-sm rounded-md font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-colors">Cancel</button>
-              <button onClick={handleCompleteJob} className="px-10 py-3 text-sm rounded-md font-bold bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:opacity-90">Mark Complete</button>
-            </>
-          )}
-          {job.status === 'AWAITING_EVALUATION' && isPoster && (
-            <>
-              <button onClick={handleRejectJob} className="px-6 py-3 text-sm rounded-md font-bold bg-red-100 text-red-600 hover:bg-red-200">Needs Work</button>
-              <button onClick={handleApproveJob} className="px-10 py-3 text-sm rounded-md font-bold bg-green-600 text-white hover:bg-green-700">Approve & Pay</button>
-            </>
-          )}
-          {isPoster && job.status === 'OPEN' && (
-            <button onClick={() => router.push(`/jobs/modify/${job.id}`)} className="px-10 py-3 text-sm rounded-md font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-300 dark:hover:bg-zinc-700">
-              Modify Posting
-            </button>
-          )}
         </div>
       </div>
     </div>
