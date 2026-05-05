@@ -2,16 +2,24 @@
 
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchGeocode } from "../../lib/geocoding";
+
 
 type ArchiveJob = {
   id: string;
   title: string;
   price: number;
   completedAt: string;
-  worker?: { name: string };
-  seeker?: { name: string };
+  worker?: { 
+    id: string; 
+    name: string; 
+  };
+  seeker?: { 
+    id: string; 
+    name: string; 
+  };
 };
 
 type UserProfile = {
@@ -324,7 +332,13 @@ export default function ProfilePage() {
                     <div>
                       <h3 className="font-semibold text-md text-black dark:text-white">{job.title}</h3>
                       <p className="text-xs text-zinc-500 mt-1">
-                        Completed on {new Date(job.completedAt).toLocaleDateString()} for <span className="font-medium text-zinc-700 dark:text-zinc-300">{job.seeker?.name}</span>
+                        Completed on {new Date(job.completedAt).toLocaleDateString()} for{" "}
+                        <Link 
+                          href={`/users/${job.seeker?.id}`} 
+                          className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          {job.seeker?.name}
+                        </Link>
                       </p>
                     </div>
                     <span className="bg-green-100 text-green-800 text-sm font-bold px-3 py-1 rounded-full dark:bg-green-900/30 dark:text-green-400">
@@ -352,7 +366,13 @@ export default function ProfilePage() {
                     <div>
                       <h3 className="font-semibold text-md text-zinc-700 dark:text-zinc-300">{job.title}</h3>
                       <p className="text-xs text-zinc-500 mt-1">
-                        Completed on {new Date(job.completedAt).toLocaleDateString()} by <span className="font-medium">{job.worker?.name}</span>
+                        Completed on {new Date(job.completedAt).toLocaleDateString()} for{" "}
+                        <Link 
+                          href={`/users/${job.worker?.id}`} 
+                          className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          {job.worker?.name}
+                        </Link>
                       </p>
                     </div>
                     <span className="bg-zinc-100 text-zinc-600 text-sm font-bold px-3 py-1 rounded-full dark:bg-zinc-800 dark:text-zinc-400">

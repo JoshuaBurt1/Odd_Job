@@ -15,12 +15,17 @@ type Job = {
   startDate: string;
   expiryDate: string;
   createdAt: string;
+  timezone: string;
   address?: string | null;
   lat?: number | null;
   lng?: number | null;
   radius?: number | null;
   seekerId: string;
-  seeker?: { name: string } | null;
+  seeker?: { 
+    name: string;
+    seekerRating?: number;
+    seekerReviewCount?: number;
+  } | null;
   workerId?: string | null;
   worker?: { name: string } | null;
 };
@@ -32,6 +37,20 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
+
+//ensures the date is rendered according to the Job's timezone, not the worker User's local browser time.
+const formatJobDate = (dateString: string, tz: string) => {
+  try {
+    return new Date(dateString).toLocaleString(undefined, {
+      timeZone: tz,
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  } catch (e) {
+    // Fallback if timezone string is invalid
+    return new Date(dateString).toLocaleString();
+  }
+};
 
 export default function ViewJobPage() {
   const router = useRouter();
@@ -251,19 +270,41 @@ export default function ViewJobPage() {
             <div className="grid grid-cols-1 gap-4 text-sm bg-gray-50 dark:bg-zinc-900/50 p-6 rounded-xl border border-gray-100 dark:border-gray-800">
               <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
                 <span className="text-zinc-500">Posted By</span>
-                <span className="font-semibold">{job.seeker?.name || 'Unknown'}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{job.seeker?.name || 'Unknown'}</span>
+                  {job.seeker && job.seeker.seekerReviewCount !== undefined && (
+                    <span className="text-amber-500 text-xs font-medium flex items-center" title={`${job.seeker.seekerReviewCount} Reviews`}>
+                      ★ {job.seeker.seekerRating?.toFixed(1) || "0.0"} <span className="text-zinc-400 ml-1">({job.seeker.seekerReviewCount})</span>
+                    </span>
+                  )}
+                </div>
               </div>
+
+              {/* Start Date & Time */}
               <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+                <span className="text-zinc-500">Work Starts</span>
+                <span className="font-semibold text-blue-600 dark:text-blue-400">
+                  {formatJobDate(job.startDate, job.timezone)}
+                </span>
+              </div>
+
+              {/* Expiry Date & Time */}
+              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+                <span className="text-zinc-500">Deadline</span>
+                <span className="font-semibold text-orange-600/80">
+                  {formatJobDate(job.expiryDate, job.timezone)}
+                </span>
+              </div>
+
+              {/* Explicit Timezone Info */}
+              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
+                <span className="text-zinc-500">Timezone</span>
+                <span className="font-mono text-[10px] uppercase">{job.timezone}</span>
+              </div>
+
+              <div className="flex justify-between">
                 <span className="text-zinc-500">Location</span>
                 <span className="font-semibold">{job.address || 'Location Hidden'}</span>
-              </div>
-              <div className="flex justify-between border-b border-gray-100 dark:border-zinc-800 pb-2">
-                <span className="text-zinc-500">Posted Date</span>
-                <span className="font-semibold">{new Date(job.createdAt).toLocaleDateString()}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Expiry Date</span>
-                <span className="font-semibold text-orange-600/80">{new Date(job.expiryDate).toLocaleDateString()}</span>
               </div>
             </div>
           </div>

@@ -1,8 +1,10 @@
 // web/src/app/jobs/page.tsx
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchGeocode } from "../../lib/geocoding";
+import FormattedJobDate from "@/components/FormattedJobDate";
 
 type Job = {
   id: string;
@@ -11,6 +13,7 @@ type Job = {
   description: string;
   price: number;
   status: string;
+  timezone: string;
   startDate: string;
   expiryDate: string;
   address?: string | null;
@@ -19,7 +22,12 @@ type Job = {
   radius?: number | null;
   distance?: number;
   seekerId: string;
-  seeker?: { name: string } | null;
+  seeker?: { 
+    id: string;
+    name: string;
+    seekerRating?: number;
+    seekerReviewCount?: number;
+  } | null;
   workerId?: string | null;
   worker?: { name: string } | null;
   createdAt: string;
@@ -418,20 +426,53 @@ export default function JobsPage() {
                       "{job.description.length > 80 ? `${job.description.substring(0, 80)}...` : job.description}"
                     </p>
 
+                    {/* Replace the old date block with this updated version */}
                     <div className="flex items-center justify-between mt-2 pt-1 border-t border-gray-50 dark:border-zinc-900/50 text-[9px] uppercase tracking-tight font-medium text-zinc-500">
-                      <div className="flex gap-4">
-                        <div className="flex gap-1">
-                          <span className="text-zinc-400">Posted:</span>
-                          <span>{new Date(job.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
-                        </div>
-                        <div className="flex gap-1">
-                          <span className="text-zinc-400">Expires:</span>
-                          <span className="text-orange-600/80 dark:text-orange-400/80">{new Date(job.expiryDate).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
-                        </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {/* 1. Created At (Usually kept in UTC or Job TZ) */}
+                        <FormattedJobDate 
+                          label="Posted:" 
+                          date={job.createdAt} 
+                          timezone={job.timezone} 
+                          className="flex gap-1"
+                        />
+
+                        {/* 2. Start Date */}
+                        <FormattedJobDate 
+                          label="Starts:" 
+                          date={job.startDate} 
+                          timezone={job.timezone} 
+                          className="flex gap-1"
+                        />
+
+                        {/* 3. Expiry Date */}
+                        <FormattedJobDate 
+                          label="Expires:" 
+                          date={job.expiryDate} 
+                          timezone={job.timezone} 
+                          className="flex gap-1 text-orange-600/80 dark:text-orange-400/80"
+                        />
                       </div>
 
                       <div className="flex gap-3 items-center">
-                        <span><strong>Seeker:</strong> {job.seeker?.name?.split(' ')[0] || 'Unknown'}</span>
+                        <span className="flex items-center gap-1">
+                          <strong>Posted By:</strong>{" "}
+                          {job.seeker?.id ? (
+                            <Link 
+                              href={`/users/${job.seeker.id}`}
+                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              {job.seeker.name.split(' ')[0]}
+                            </Link>
+                          ) : (
+                            job.seeker?.name?.split(' ')[0] || 'Unknown'
+                          )}
+                          {job.seeker && job.seeker.seekerReviewCount !== undefined && (
+                            <span className="text-amber-500 tracking-normal ml-0.5" title={`${job.seeker.seekerReviewCount} Reviews`}>
+                              ★ {job.seeker.seekerRating?.toFixed(1) || "0.0"} <span className="text-zinc-400">({job.seeker.seekerReviewCount})</span>
+                            </span>
+                          )}
+                        </span>
                         <span className="px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded text-zinc-600 dark:text-zinc-400">
                           {job.status}
                         </span>

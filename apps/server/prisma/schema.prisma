@@ -1,3 +1,4 @@
+// server/prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
   output   = "../../../node_modules/.prisma/client"
@@ -39,15 +40,15 @@ enum JobType {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  password      String
-  name          String
-  paymentId     String?   
-  address       String?
-  userLat       Float?
-  userLong      Float?
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  paymentId String?   
+  address   String?
+  userLat   Float?
+  userLong  Float?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   // Quality Tracking: Seeker (The person posting/paying)
   seekerRating      Float @default(0)
@@ -57,11 +58,16 @@ model User {
   workerRating      Float @default(0)
   workerReviewCount Int   @default(0)
 
-  postedJobs    Job[]     @relation("SeekerJobs")
-  acceptedJobs  Job[]     @relation("WorkerJobs")
+  postedJobs   Job[] @relation("SeekerJobs")
+  acceptedJobs Job[] @relation("WorkerJobs")
 
   seekerArchive CompletedJob[] @relation("SeekerCompleted")
   workerArchive CompletedJob[] @relation("WorkerCompleted")
+
+  // Reviews
+  seekerReviews  Review[] @relation("SeekerReviews")
+  workerReviews  Review[] @relation("WorkerReviews")
+  writtenReviews Review[] @relation("WrittenReviews")
 }
 
 model Job {
@@ -107,4 +113,29 @@ model CompletedJob {
 
   originalCreatedAt DateTime @db.Timestamptz(3)
   completedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  reviews           Review[]
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1-5 stars
+  comment   String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  // The job this review is associated with
+  jobId     String
+  job       CompletedJob @relation(fields: [jobId], references: [id])
+
+  // The user who wrote the review
+  authorId  String
+  author    User     @relation("WrittenReviews", fields: [authorId], references: [id])
+
+  // If evaluating the seeker, populate seekerId
+  seekerId  String?
+  seeker    User?    @relation("SeekerReviews", fields: [seekerId], references: [id])
+
+  // If evaluating the worker, populate workerId
+  workerId  String?
+  worker    User?    @relation("WorkerReviews", fields: [workerId], references: [id])
 }

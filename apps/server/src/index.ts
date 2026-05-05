@@ -118,11 +118,11 @@ app.get('/api/users/:id/profile', async (req, res) => {
       where: { id: req.params.id },
       include: {
         workerArchive: {
-          include: { seeker: { select: { name: true } } },
+          include: { seeker: { select: { id: true, name: true } } },
           orderBy: { completedAt: 'desc' }
         },
         seekerArchive: {
-          include: { worker: { select: { name: true } } },
+          include: { worker: { select: { id: true, name: true } } },
           orderBy: { completedAt: 'desc' }
         }
       }
@@ -187,10 +187,74 @@ app.put('/api/users/:id/payment', async (req, res) => {
   }
 });
 
+app.get('/api/users/:id/public-profile', async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: {
+        workerArchive: {
+          include: { 
+            seeker: { 
+              select: { 
+                id: true,
+                name: true 
+              } 
+            } 
+          },
+          orderBy: { completedAt: 'desc' }
+        },
+        seekerArchive: {
+          include: { 
+            worker: { 
+              select: { 
+                id: true,
+                name: true 
+              } 
+            } 
+          },
+          orderBy: { completedAt: 'desc' }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Expose ONLY safe, non-sensitive fields
+    res.json({
+      id: user.id,
+      name: user.name,
+      seekerRating: user.seekerRating,
+      seekerReviewCount: user.seekerReviewCount,
+      workerRating: user.workerRating,
+      workerReviewCount: user.workerReviewCount,
+      createdAt: user.createdAt,
+      completedJobs: user.workerArchive.length,
+      
+      workerComplete: user.workerArchive.map(job => ({
+        id: job.id,
+        title: job.title,
+        completedAt: job.completedAt,
+        seeker: job.seeker
+      })),
+      seekerComplete: user.seekerArchive.map(job => ({
+        id: job.id,
+        title: job.title,
+        completedAt: job.completedAt,
+        worker: job.worker
+      }))
+    });
+  } catch (error) {
+    console.error("Public Profile Fetch Error:", error);
+    res.status(500).json({ error: "Failed to fetch public profile" });
+  }
+});
+
 // --- JOB ENDPOINTS ---
 app.post('/api/jobs', async (req, res) => {
   try {
-    const { title, type, description, price, seekerId, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    const { title, type, description, price, seekerId, timezone, startDate, expiryDate, address, lat, lng, radius } = req.body;
     
     const job = await prisma.job.create({
       data: { 
@@ -199,6 +263,7 @@ app.post('/api/jobs', async (req, res) => {
         description, 
         price: parseFloat(price), 
         seekerId,
+        timezone: timezone || "UTC",
         startDate: new Date(startDate),
         expiryDate: new Date(expiryDate),
         address,
@@ -234,7 +299,14 @@ app.get('/api/jobs', async (req, res) => {
       },
       include: {
         worker: { select: { name: true } },
-        seeker: { select: { name: true } }
+        seeker: { 
+          select: { 
+            id: true,
+            name: true,
+            seekerRating: true,
+            seekerReviewCount: true 
+          } 
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -250,7 +322,14 @@ app.get('/api/jobs/:id', async (req, res) => {
       where: { id: req.params.id },
       include: {
         worker: { select: { name: true } },
-        seeker: { select: { name: true } }
+        seeker: { 
+          select: { 
+            id: true,
+            name: true,
+            seekerRating: true,
+            seekerReviewCount: true 
+          } 
+        }
       }
     });
     if (!job) return res.status(404).json({ error: "Job not found" });
@@ -262,7 +341,7 @@ app.get('/api/jobs/:id', async (req, res) => {
 
 app.put('/api/jobs/:id', async (req, res) => {
   try {
-    const { title, type, description, price, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    const { title, type, description, price, timezone, startDate, expiryDate, address, lat, lng, radius } = req.body;
     
     const job = await prisma.job.update({
       where: { id: req.params.id },
@@ -271,6 +350,7 @@ app.put('/api/jobs/:id', async (req, res) => {
         type,
         description,
         price: parseFloat(price),
+        timezone: timezone || "UTC",
         startDate: new Date(startDate),
         expiryDate: new Date(expiryDate),
         address,

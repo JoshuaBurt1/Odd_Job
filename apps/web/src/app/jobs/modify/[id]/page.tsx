@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { fetchGeocode } from "@/lib/geocoding";
+import { COMMON_TIMEZONES } from "@/lib/timezones";
 import { JOB_CATEGORIES } from "@/lib/jobTypes";
 
 export default function ModifyJobPage() {
@@ -24,6 +25,7 @@ export default function ModifyJobPage() {
     price: "",
     startDate: "",
     expiryDate: "",
+    timezone: "UTC",
     address: "",
     radius: "10",
     seekerId: "",
@@ -55,6 +57,7 @@ export default function ModifyJobPage() {
           // slice(0, 16) is required for <input type="datetime-local" /> format: YYYY-MM-DDTHH:mm
           startDate: new Date(data.startDate).toISOString().slice(0, 16),
           expiryDate: new Date(data.expiryDate).toISOString().slice(0, 16),
+          timezone: data.timezone || "UTC",
           address: data.address || "",
           radius: data.radius ? data.radius.toString() : "10",
           seekerId: data.seekerId,
@@ -264,6 +267,36 @@ export default function ModifyJobPage() {
                 onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
                 className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-transparent outline-none"
               />
+            </div>
+
+            {/* Timezone Selection */}
+            <div className="mt-1">
+              <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">
+                Job Timezone
+              </label>
+              <div className="relative group">
+                <select 
+                  value={formData.timezone}
+                  onChange={e => setFormData({...formData, timezone: e.target.value})}
+                  className="w-full p-3 text-sm border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-zinc-900 outline-none appearance-none pr-10 focus:ring-2 focus:ring-zinc-500/20 transition-all cursor-pointer"
+                >
+                  {COMMON_TIMEZONES.map((tz) => (
+                    <option key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </option>
+                  ))}
+                  {/* Fallback for the auto-detected zone if not in the common list */}
+                  {!COMMON_TIMEZONES.some(tz => tz.value === formData.timezone) && (
+                    <option value={formData.timezone}>{formData.timezone} (Detected)</option>
+                  )}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-zinc-500">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-[10px] text-zinc-400 mt-1">Times will be displayed to workers in this timezone.</p>
             </div>
           </div>
 
