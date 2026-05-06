@@ -97,6 +97,67 @@ cron.schedule("*/15 * * * *", async () => {
   }
 }, { timezone: "America/Toronto" });
 
+
+// --- HELPER: Calculate Auto-Pay Target (End of the following day) ---
+function calculateAutoPayDate(startDateStr: string | Date) {
+  const target = new Date(startDateStr);
+  
+  // Simply add 1 day to reach the "following day"
+  target.setDate(target.getDate() + 1);
+  
+  // Set expiration to the very last millisecond of that following day
+  // This means at 00:00:00 of the day after, the job is officially expired.
+  target.setHours(23, 59, 59, 999);
+  return target;
+}
+
+// 3. AUTO-PAY CRON JOB
+// Runs strictly at 00:00 (Midnight) every day
+cron.schedule('0 0 * * *', async () => {
+  try {
+    const now = new Date().getTime();
+    
+    const awaitingJobs = await prisma.job.findMany({
+      where: { status: JobStatus.AWAITING_EVALUATION },
+      include: { worker: true }
+    });
+
+    const expiredJobs = awaitingJobs.filter(job => {
+      if (!job.evaluationStartedAt) return false;
+      const targetDate = calculateAutoPayDate(job.evaluationStartedAt);
+      return now >= targetDate.getTime();
+    });
+
+    if (expiredJobs.length === 0) return;
+
+    for (const job of expiredJobs) {
+      const workerId = job.workerId;
+      if (!workerId) continue; 
+      
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const completedJob = await tx.completedJob.create({
+          data: {
+            title: job.title,
+            type: job.type,
+            description: job.description,
+            price: job.price,
+            seekerId: job.seekerId,
+            workerId: workerId,
+            originalCreatedAt: job.createdAt
+          }
+        });
+        await tx.job.delete({ where: { id: job.id } });
+        console.log(`[PAYPAL API] Auto-releasing funds: $${completedJob.price}`);
+      });
+    }
+
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    console.log(`🧹 Auto-approved ${expiredJobs.length} jobs.`);
+  } catch (error) {
+    console.error("Auto-approve cron job failed:", error);
+  }
+}, { timezone: "America/Toronto" });
+
 // --- REAL-TIME SSE LOGIC ---
 let clients: any[] = [];
 
@@ -288,6 +349,21 @@ app.get('/api/users/:id/public-profile', async (req, res) => {
   }
 });
 
+app.get('/api/users/:id/active-job', async (req, res) => {
+  try {
+    const activeJob = await prisma.job.findFirst({
+      where: {
+        workerId: req.params.id,
+        status: { in: [JobStatus.ACCEPTED, JobStatus.AWAITING_EVALUATION] }
+      },
+      select: { id: true, title: true }
+    });
+    res.json({ activeJob });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch active job" });
+  }
+});
+
 // --- JOB ENDPOINTS ---
 app.post('/api/jobs', async (req, res) => {
   try {
@@ -435,6 +511,16 @@ app.post('/api/jobs/:id/accept', async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const activeJob = await tx.job.findFirst({
+        where: {
+          workerId: workerId,
+          status: { in: [JobStatus.ACCEPTED, JobStatus.AWAITING_EVALUATION] }
+        }
+      });
+      
+      if (activeJob) {
+        throw new Error("You already have an active job. Complete or cancel it first.");
+      }
       const job = await tx.job.findUnique({ where: { id: jobId } });
       
       if (!job || job.status !== JobStatus.OPEN) throw new Error("Job is no longer available.");
@@ -483,17 +569,20 @@ app.post('/api/jobs/:id/cancel', async (req, res) => {
 });
 
 app.post('/api/jobs/:id/complete', async (req, res) => {
-  try {
-    const job = await prisma.job.update({
-      where: { id: req.params.id },
-      data: { status: JobStatus.AWAITING_EVALUATION },
-      include: { worker: true }
-    });
-    broadcastUpdate({ type: "REFRESH_JOBS" });
-    res.json({ message: "Job submitted for evaluation.", job });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to submit job for evaluation." });
-  }
+  try {
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: { 
+        status: JobStatus.AWAITING_EVALUATION,
+        evaluationStartedAt: new Date()
+      },
+      include: { worker: true }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job submitted for evaluation.", job });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to submit job for evaluation." });
+  }
 });
 
 app.post('/api/jobs/:id/approve', async (req, res) => {
@@ -536,17 +625,20 @@ app.post('/api/jobs/:id/approve', async (req, res) => {
 });
 
 app.post('/api/jobs/:id/reject', async (req, res) => {
-  try {
-    const job = await prisma.job.update({
-      where: { id: req.params.id },
-      data: { status: JobStatus.ACCEPTED }, 
-      include: { worker: true }
-    });
-    broadcastUpdate({ type: "REFRESH_JOBS" });
-    res.json({ message: "Job returned to worker for improvements.", job });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to reject job." });
-  }
+  try {
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: { 
+        status: JobStatus.ACCEPTED,
+        evaluationStartedAt: null // <-- ADD THIS LINE
+      }, 
+      include: { worker: true }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job returned to worker for improvements.", job });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to reject job." });
+  }
 });
 
 const PORT = 4000;

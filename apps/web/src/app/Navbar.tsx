@@ -5,11 +5,11 @@ import { useEffect, useState, useRef } from "react";
 
 export default function Navbar() {
   const [user, setUser] = useState<{ id: string; name: string } | null>(null);
+  const [activeJob, setActiveJob] = useState<{ id: string; title: string } | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Standardize to localStorage and listen for updates
     const checkSession = () => {
       const storedUser = localStorage.getItem("user");
       if (storedUser) {
@@ -22,7 +22,6 @@ export default function Navbar() {
     checkSession();
     window.addEventListener("storage", checkSession);
 
-    // Close dropdown if clicked outside
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setDropdownOpen(false);
@@ -35,6 +34,24 @@ export default function Navbar() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
+
+  // NEW: Fetch active job when user state changes or custom event fires
+  useEffect(() => {
+    const fetchActiveJob = () => {
+      if (user) {
+        fetch(`http://localhost:4000/api/users/${user.id}/active-job`)
+          .then(res => res.json())
+          .then(data => setActiveJob(data.activeJob || null))
+          .catch(console.error);
+      } else {
+        setActiveJob(null);
+      }
+    };
+
+    fetchActiveJob();
+    window.addEventListener("job-status-changed", fetchActiveJob);
+    return () => window.removeEventListener("job-status-changed", fetchActiveJob);
+  }, [user]);
 
   const handleLogout = () => {
     localStorage.removeItem("user");
@@ -53,6 +70,13 @@ export default function Navbar() {
         <Link href="/jobs" className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
           Browse Jobs
         </Link>
+        
+        {/* NEW: Render the active job link if they have one */}
+        {activeJob && (
+          <Link href={`/jobs/view/${activeJob.id}`} className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline transition-colors">
+            Current Job: {activeJob.title}
+          </Link>
+        )}
         
         {user ? (
           <div className="relative" ref={dropdownRef}>

@@ -81,6 +81,7 @@ model Job {
   timezone    String    @default("UTC")
   startDate   DateTime  @default(now()) @db.Timestamptz(3)
   expiryDate  DateTime  @db.Timestamptz(3)
+  evaluationStartedAt DateTime? @db.Timestamptz(3)
   
   address     String?
   lat         Float?

@@ -1,8 +1,6 @@
 // web/src/app/jobs/view/[id]/page.tsx
-
 "use client";
-
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import 'leaflet/dist/leaflet.css';
@@ -37,6 +35,53 @@ type Job = {
   } | null;
   workerId?: string | null;
   worker?: { name: string } | null;
+  evaluationStartedAt?: string | null;
+};
+
+const PaymentTimer = ({ evaluationStartedAt }: { evaluationStartedAt: string }) => {
+  const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
+
+  useEffect(() => {
+    if (!evaluationStartedAt) return;
+
+    const getTargetDate = () => {
+      const target = new Date(evaluationStartedAt);
+      // Add 1 day to target the following day's midnight (effectively the next calendar day's end)
+      target.setDate(target.getDate() + 1);
+      target.setHours(23, 59, 59, 999);
+      return target;
+    };
+
+    const targetTime = getTargetDate().getTime();
+
+    const interval = setInterval(() => {
+      const now = new Date().getTime();
+      const distance = targetTime - now;
+
+      if (distance <= 0) {
+        setTimeLeft("Processing Auto-Pay...");
+        clearInterval(interval);
+      } else {
+        // 1. Calculate total days remaining
+        const d = Math.floor(distance / (1000 * 60 * 60 * 24));
+        // 2. Extract remaining hours, minutes, and seconds
+        const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((distance % (1000 * 60)) / 1000);
+        
+        // 3. Display the days component if the distance is greater than 24 hours
+        if (d > 0) {
+          setTimeLeft(`${d}d ${h}h ${m}m ${s}s`);
+        } else {
+          setTimeLeft(`${h}h ${m}m ${s}s`);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [evaluationStartedAt]);
+
+  return <span className="font-mono tracking-tight">{timeLeft}</span>;
 };
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -71,8 +116,18 @@ export default function ViewJobPage() {
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number, address?: string, hasStoredLocation: boolean} | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasActiveJob, setHasActiveJob] = useState(false); // NEW
 
-  const fetchJob = () => {
+  useEffect(() => {
+    if (user) {
+      fetch(`http://localhost:4000/api/users/${user.id}/active-job`)
+        .then(res => res.json())
+        .then(data => setHasActiveJob(!!data.activeJob))
+        .catch(console.error);
+    }
+  }, [user, job]);
+
+  const fetchJob = useCallback(() => {
     fetch(`http://localhost:4000/api/jobs/${id}`)
       .then(res => res.json())
       .then(data => {
@@ -83,7 +138,31 @@ export default function ViewJobPage() {
         console.error(err);
         setLoading(false);
       });
-  };
+  }, [id]);
+
+  useEffect(() => {
+    const eventSource = new EventSource("http://localhost:4000/api/jobs/stream");
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // When any job update is broadcasted, re-fetch this specific job's data
+        if (data.type === "REFRESH_JOBS") {
+          fetchJob();
+        }
+      } catch (error) {
+        console.error("Error parsing SSE message:", error);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [fetchJob]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -185,6 +264,7 @@ export default function ViewJobPage() {
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to accept");
       fetchJob();
+      window.dispatchEvent(new Event("job-status-changed")); // NEW
     } catch (err: any) { alert(err.message || "Could not accept job."); }
   };
 
@@ -197,6 +277,7 @@ export default function ViewJobPage() {
       });
       if (!res.ok) throw new Error("Failed to cancel");
       fetchJob();
+      window.dispatchEvent(new Event("job-status-changed")); // NEW
     } catch (err) { alert("Could not cancel job."); }
   };
 
@@ -205,6 +286,7 @@ export default function ViewJobPage() {
       const res = await fetch(`http://localhost:4000/api/jobs/${job?.id}/complete`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to complete");
       fetchJob();
+      window.dispatchEvent(new Event("job-status-changed")); // NEW
     } catch (err) { alert("Could not complete job."); }
   };
 
@@ -268,11 +350,17 @@ export default function ViewJobPage() {
             </span>
             
             {/* Conditional Action Buttons moved under payment */}
-            <div className="flex flex-col gap-2 w-full min-w-[160px]">
+            <div className="flex flex-col gap-2 w-full min-w-40">
               {job.status === 'OPEN' && !isPoster && !isExpired && (
-                <button onClick={handleAcceptJob} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-colors shadow-sm">
-                  Accept Job
-                </button>
+                hasActiveJob ? (
+                  <button disabled className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed shadow-sm border border-zinc-300 dark:border-zinc-700">
+                    You have an active job
+                  </button>
+                ) : (
+                  <button onClick={handleAcceptJob} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-colors shadow-sm">
+                    Accept Job
+                  </button>
+                )
               )}
               {job.status === 'ACCEPTED' && isWorker && (
                 <>

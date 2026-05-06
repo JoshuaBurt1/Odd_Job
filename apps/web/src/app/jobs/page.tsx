@@ -31,7 +31,55 @@ type Job = {
   workerId?: string | null;
   worker?: { name: string } | null;
   createdAt: string;
+  evaluationStartedAt?: string | null;
 };
+
+const PaymentTimer = ({ evaluationStartedAt }: { evaluationStartedAt: string }) => {
+  const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
+
+  useEffect(() => {
+    if (!evaluationStartedAt) return;
+
+    const getTargetDate = () => {
+      const target = new Date(evaluationStartedAt);
+      // Add 1 day to target the following day's midnight (effectively the next calendar day's end)
+      target.setDate(target.getDate() + 1);
+      target.setHours(23, 59, 59, 999);
+      return target;
+    };
+
+    const targetTime = getTargetDate().getTime();
+
+    const interval = setInterval(() => {
+      const now = new Date().getTime();
+      const distance = targetTime - now;
+
+      if (distance <= 0) {
+        setTimeLeft("Processing Auto-Pay...");
+        clearInterval(interval);
+      } else {
+        // 1. Calculate total days remaining
+        const d = Math.floor(distance / (1000 * 60 * 60 * 24));
+        // 2. Extract remaining hours, minutes, and seconds
+        const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((distance % (1000 * 60)) / 1000);
+        
+        // 3. Display the days component if the distance is greater than 24 hours
+        if (d > 0) {
+          setTimeLeft(`${d}d ${h}h ${m}m ${s}s`);
+        } else {
+          setTimeLeft(`${h}h ${m}m ${s}s`);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [evaluationStartedAt]);
+
+  return <span className="font-mono tracking-tight">{timeLeft}</span>;
+};
+
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371; // Radius of the earth in km
@@ -251,42 +299,104 @@ export default function JobsPage() {
     const expiryDate = new Date(job.expiryDate);
     const isExpired = expiryDate < now;
 
+    // Shared button styles to ensure consistency
+    const btnBase = "px-4 py-1.5 text-xs rounded-md font-bold transition-all shadow-sm";
+    const btnSecondary = `${btnBase} bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700`;
+    const btnPrimary = `${btnBase} bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-500`;
+    const btnDanger = `${btnBase} bg-white dark:bg-zinc-900 text-red-600 border border-red-200 dark:border-red-900/30 hover:bg-red-50 dark:hover:bg-red-900/20`;
+
     if (isPoster) {
-      if (isExpired && job.status === 'OPEN') {
-        const diffMs = now.getTime() - expiryDate.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        const daysLeft = Math.max(0, 7 - diffDays);
+      if (job.status === 'AWAITING_EVALUATION') {
         return (
-          <div className="flex flex-col items-end gap-2 w-full mt-2">
-            <div className="w-full p-2 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800/50">
-              <p className="text-xs text-red-600 dark:text-red-400 font-medium text-center">
-                ⚠️ Hidden due to expiry. Will be permanently deleted in {daysLeft} days.
-              </p>
+          <div className="flex flex-col items-end gap-2">
+            {/* Standardized Timer Badge */}
+            <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-md border border-orange-200 dark:border-orange-800/50 text-orange-800 dark:text-orange-300">
+              <svg className="w-3.5 h-3.5 animate-pulse shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-[10px] font-bold whitespace-nowrap">AUTO-PAY:</span>
+              <span className="text-xs font-black text-orange-600 dark:text-orange-400">
+                <PaymentTimer evaluationStartedAt={job.evaluationStartedAt!} />
+              </span>
             </div>
-            <div className="flex justify-between items-center mt-2">
+            
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => router.push(`/jobs/modify/${job.id}`)}
-                className="px-6 py-2 text-sm rounded-md font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                onClick={async () => {
+                  try {
+                    await fetch(`http://localhost:4000/api/jobs/${job.id}/reject`, { method: "POST" });
+                  } catch (err) {
+                    console.error("Failed to request improvement", err);
+                  }
+                }}
+                className={btnDanger}
               >
-                Modify Post
+                Needs Improvement
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch(`http://localhost:4000/api/jobs/${job.id}/approve`, { method: "POST" });
+                  } catch (err) {
+                    console.error("Failed to approve and pay", err);
+                  }
+                }}
+                className={btnPrimary}
+              >
+                Approve Payment
               </button>
             </div>
           </div>
         );
       }
+
+      if (isExpired && job.status === 'OPEN') {
+        const diffMs = now.getTime() - expiryDate.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const daysLeft = Math.max(0, 7 - diffDays);
+        return (
+          <div className="flex flex-col items-end gap-2">
+            <div className="px-2 py-1 bg-red-50 dark:bg-red-900/20 rounded border border-red-100 dark:border-red-800/50">
+              <p className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-tight">
+                ⚠️ Expired • Deleting in {daysLeft}d
+              </p>
+            </div>
+            <button
+              onClick={() => router.push(`/jobs/modify/${job.id}`)}
+              className={btnSecondary}
+            >
+              Modify Post
+            </button>
+          </div>
+        );
+      }
+      
       return (
-        <div className="mt-4 flex justify-between items-center">
+        <div className="flex items-center">
           <button
             onClick={() => router.push(`/jobs/modify/${job.id}`)}
-            className="px-6 py-2 text-sm rounded-md font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+            className={btnSecondary}
           >
             Modify Post
           </button>
         </div>
       );
     }
+    
+    // Non-poster view (Worker)
     return (
-      <div className="mt-4 flex justify-end">
+      <div className="flex items-center gap-3">
+        {job.status === 'AWAITING_EVALUATION' && job.evaluationStartedAt && (
+          <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-md border border-orange-200 dark:border-orange-800/50 text-orange-800 dark:text-orange-300">
+            <svg className="w-3.5 h-3.5 animate-pulse shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-[10px] font-bold whitespace-nowrap">AUTO-PAY:</span>
+            <span className="text-xs font-black text-orange-600 dark:text-orange-400">
+              <PaymentTimer evaluationStartedAt={job.evaluationStartedAt!} />
+            </span>
+          </div>
+        )}
         <button
           onClick={() => {
             if (!user) {
@@ -295,7 +405,7 @@ export default function JobsPage() {
               router.push(`/jobs/view/${job.id}`);
             }
           }}
-          className="px-6 py-2 text-sm rounded-md font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+          className={btnSecondary}
         >
           View Posting
         </button>
@@ -438,7 +548,7 @@ export default function JobsPage() {
                         </div>
                       </div>
 
-                      <div className="shrink-0 scale-90 origin-right">
+                      <div className="shrink-0 flex items-center min-h-10">
                         {renderJobActions(job)}
                       </div>
                     </div>
