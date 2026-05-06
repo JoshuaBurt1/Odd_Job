@@ -210,29 +210,29 @@ export default function ProfilePage() {
             <hr className="border-gray-100 dark:border-gray-800 mb-6" />
 
             {/* Ratings Grid */}
-<div className="grid grid-cols-2 gap-4 mb-6">
-  {/* Worker Link */}
-  <Link 
-    href={`/users/${profile.id}`}
-    className="flex flex-col items-center p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-gray-100 dark:border-gray-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group"
-  >
-    <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-1">Worker</span>
-    <div className="group-hover:opacity-80 transition-opacity">
-      {renderStars(profile.workerRating, profile.workerReviewCount)}
-    </div>
-  </Link>
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {/* Worker Link */}
+                <Link 
+                  href={`/users/${profile.id}`}
+                  className="flex flex-col items-center p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-gray-100 dark:border-gray-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group"
+                >
+                  <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-1">Worker</span>
+                  <div className="group-hover:opacity-80 transition-opacity">
+                    {renderStars(profile.workerRating, profile.workerReviewCount)}
+                  </div>
+                </Link>
 
-  {/* Seeker Link */}
-  <Link 
-    href={`/users/${profile.id}`}
-    className="flex flex-col items-center p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-gray-100 dark:border-gray-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group"
-  >
-    <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-1">Seeker</span>
-    <div className="group-hover:opacity-80 transition-opacity">
-      {renderStars(profile.seekerRating, profile.seekerReviewCount)}
-    </div>
-  </Link>
-</div>
+                {/* Seeker Link */}
+                <Link 
+                  href={`/users/${profile.id}`}
+                  className="flex flex-col items-center p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-gray-100 dark:border-gray-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group"
+                >
+                  <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-1">Seeker</span>
+                  <div className="group-hover:opacity-80 transition-opacity">
+                    {renderStars(profile.seekerRating, profile.seekerReviewCount)}
+                  </div>
+                </Link>
+              </div>
 
             {/* Stats */}
             <div className="flex flex-col gap-3 mb-6">
