@@ -49,14 +49,20 @@ export default function ModifyJobPage() {
         return res.json();
       })
       .then((data) => {
+        // Helper to convert UTC string from DB to Local ISO string for the input
+        const toLocalInputString = (dateStr: string) => {
+          const date = new Date(dateStr);
+          const offset = date.getTimezoneOffset() * 60000;
+          return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+        };
+
         setFormData({
           title: data.title,
           type: data.type,
           description: data.description,
           price: data.price.toString(),
-          // slice(0, 16) is required for <input type="datetime-local" /> format: YYYY-MM-DDTHH:mm
-          startDate: new Date(data.startDate).toISOString().slice(0, 16),
-          expiryDate: new Date(data.expiryDate).toISOString().slice(0, 16),
+          startDate: toLocalInputString(data.startDate),
+          expiryDate: toLocalInputString(data.expiryDate),
           timezone: data.timezone || "UTC",
           address: data.address || "",
           radius: data.radius ? data.radius.toString() : "10",
@@ -111,7 +117,6 @@ export default function ModifyJobPage() {
     e.preventDefault();
     setPostError("");
 
-    // Simple validation consistent with PostPage
     if (new Date(formData.expiryDate) <= new Date(formData.startDate)) {
       return setPostError("Expiry date must be after the start date.");
     }
@@ -122,6 +127,8 @@ export default function ModifyJobPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          startDate: new Date(formData.startDate).toISOString(),
+          expiryDate: new Date(formData.expiryDate).toISOString(),
           price: parseFloat(formData.price),
           radius: parseFloat(formData.radius),
           lat: userLocation?.lat || null,

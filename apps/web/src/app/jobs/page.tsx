@@ -168,17 +168,38 @@ export default function JobsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const eventSource = new EventSource('http://localhost:4000/api/jobs/stream');
+    
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === "REFRESH_JOBS") fetchJobs();
+        
+        if (data.type === "REFRESH_JOBS") {
+          fetchJobs();
+        } 
+        
+        else if (data.type === "REMOVE_JOBS") {
+          console.log("🧹 Live cleanup: Removing expired jobs from feed", data.ids);
+          
+          // Check if the logged-in user is the poster of any of the expiring jobs.
+          const userOwnsExpiredJob = jobs.some(
+            (job) => data.ids.includes(job.id) && job.seekerId === user?.id
+          );
+
+          if (userOwnsExpiredJob) {
+            fetchJobs(); // Re-fetch to apply and show the red "⚠️ Hidden due to expiry" box
+          } else {
+            // For everyone else, just slide the jobs out of state instantly
+            setJobs((prevJobs) => prevJobs.filter((job) => !data.ids.includes(job.id)));
+          }
+        }
       } catch (err) {
         console.error("SSE Parse Error:", err);
       }
     };
+    
     eventSource.onerror = () => eventSource.close();
     return () => eventSource.close();
-  }, []);
+  }, [jobs, user]);
 
   const groupAndSortJobs = () => {
     const grouped: Record<string, Job[]> = {};
@@ -236,7 +257,7 @@ export default function JobsPage() {
         const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
         const daysLeft = Math.max(0, 7 - diffDays);
         return (
-          <div className="flex flex-col gap-2 w-full mt-2">
+          <div className="flex flex-col items-end gap-2 w-full mt-2">
             <div className="w-full p-2 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800/50">
               <p className="text-xs text-red-600 dark:text-red-400 font-medium text-center">
                 ⚠️ Hidden due to expiry. Will be permanently deleted in {daysLeft} days.

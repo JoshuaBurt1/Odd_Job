@@ -5,6 +5,7 @@ import { PrismaClient, Prisma, JobStatus } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import cors from 'cors';
+import cron from 'node-cron';
 
 console.log("Database Host:", process.env.DB_HOST);
 
@@ -41,9 +42,12 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 // --- AUTOMATED CLEANUP TASK ---
-setInterval(async () => {
+// 1. DATABASE PURGE: Deletes jobs that have been expired for x + days to keep the DB lean.
+//cron.schedule("0 14 * * *", async () => {
+cron.schedule("0 0 * * *", async () => {
+  console.log("⏳ [DAILY CLEANUP] Checking for expired jobs...");
   const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7); // Change to -0 for testing without waiting 7 days
   
   try {
     const result = await prisma.job.deleteMany({
@@ -54,11 +58,44 @@ setInterval(async () => {
     if (result.count > 0) {
       console.log(`[CLEANUP] Deleted ${result.count} expired jobs.`);
       broadcastUpdate({ type: "REFRESH_JOBS" });
+    } else {
+      console.log("[CLEANUP] No expired jobs found.");
     }
   } catch (err) {
     console.error("[CLEANUP ERROR]", err);
   }
-}, 1000 * 60 * 60);
+}, {
+  timezone: "America/Toronto" // Optional: Ensures it runs at midnight local time
+});
+
+// 2. LIVE UI SYNC: Runs every 15 minutes
+// Detects jobs that expired in the last 15 mins and tells clients to hide them.
+cron.schedule("*/15 * * * *", async () => {
+  const now = new Date();
+  const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+
+  try {
+    const recentlyExpired = await prisma.job.findMany({
+      where: {
+        expiryDate: {
+          gt: fifteenMinutesAgo,
+          lte: now
+        }
+      },
+      select: { id: true }
+    });
+
+    if (recentlyExpired.length > 0) {
+      console.log(`[LIVE CLEANUP] Broadcasting removal of ${recentlyExpired.length} expired jobs.`);
+      broadcastUpdate({ 
+        type: "REMOVE_JOBS", 
+        ids: recentlyExpired.map(j => j.id) 
+      });
+    }
+  } catch (err) {
+    console.error("[LIVE CLEANUP ERROR]", err);
+  }
+}, { timezone: "America/Toronto" });
 
 // --- REAL-TIME SSE LOGIC ---
 let clients: any[] = [];
