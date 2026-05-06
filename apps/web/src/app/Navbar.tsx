@@ -1,3 +1,4 @@
+// web/src/app/Navbar.tsx
 "use client";
 import Link from "next/link";
 import { useEffect, useState, useRef } from "react";
@@ -64,13 +65,24 @@ export default function Navbar() {
             
             {dropdownOpen && (
               <div className="absolute right-0 mt-3 w-48 bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg overflow-hidden flex flex-col">
+                
                 <Link 
                   href="/profile" 
                   onClick={() => setDropdownOpen(false)}
                   className="px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors border-b border-gray-100 dark:border-gray-800 text-zinc-800 dark:text-zinc-200"
                 >
-                  Profile
+                  Account Settings
                 </Link>
+
+                <Link 
+                  href={`/users/${user.id}`} 
+                  onClick={() => setDropdownOpen(false)}
+                  className="px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors border-b border-gray-100 dark:border-gray-800 text-zinc-800 dark:text-zinc-200"
+                >
+                  Reviews
+                </Link>
+
+                {/* 3. LOGOUT BUTTON */}
                 <button 
                   onClick={handleLogout} 
                   className="w-full text-left px-4 py-3 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium"
