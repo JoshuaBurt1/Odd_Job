@@ -1,6 +1,7 @@
 // server/src/index.ts
 import 'dotenv/config'; 
 import express from 'express';
+import { RequestHandler } from 'express';
 import { PrismaClient, Prisma, JobStatus } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -29,6 +30,39 @@ const prisma = new PrismaClient({ adapter });
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+/**
+ * Middleware to ensure the user has a configured paymentId.
+ * Assumes the user is passing the userId in the request, either 
+ * via an authorization header, session, or request body.
+ */
+const requirePaymentSetup: RequestHandler<{ id?: string }> = async (req, res, next) => {
+  try {
+    const userId = (req.headers['x-user-id'] as string) || req.body.seekerId || req.body.workerId;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized: User ID required." });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { paymentId: true }
+    });
+
+    if (!user || !user.paymentId || user.paymentId.trim() === "") {
+      return res.status(403).json({ 
+        error: "Action denied.", 
+        reason: "PAYMENT_SETUP_REQUIRED",
+        message: "You must set up your PayPal or Stripe routing details in your profile before continuing." 
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error("Payment Validation Error:", error);
+    res.status(500).json({ error: "Internal server error during validation." });
+  }
+};
 
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371; // Radius of the earth in km
@@ -387,6 +421,11 @@ app.get('/api/users/:id/active-job', async (req, res) => {
   }
 });
 
+// app.get('/api/users/:id/can-post', requirePaymentSetup, (req, res) => {
+app.get('/api/users/:id/can-post', (req, res) => {
+  return res.json({ allowed: true });
+});
+
 // --- JOB ENDPOINTS ---
 app.post('/api/jobs', async (req, res) => {
   try {
@@ -528,6 +567,7 @@ app.delete('/api/jobs/:id', async (req, res) => {
   }
 });
 
+// app.post('/api/jobs/:id/accept', requirePaymentSetup, async (req, res) => {
 app.post('/api/jobs/:id/accept', async (req, res) => {
   const { workerId, workerLat, workerLng } = req.body; 
   const jobId = req.params.id;

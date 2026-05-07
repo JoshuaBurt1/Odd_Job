@@ -80,7 +80,6 @@ const PaymentTimer = ({ evaluationStartedAt }: { evaluationStartedAt: string }) 
   return <span className="font-mono tracking-tight">{timeLeft}</span>;
 };
 
-
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371; // Radius of the earth in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -124,6 +123,28 @@ export default function JobsPage() {
         console.error("Failed to fetch jobs", err);
         setLoading(false);
       });
+  };
+
+  const handlePostJobClick = async () => {
+    if (!user) return router.push("/auth");
+
+    try {
+      const res = await fetch(`http://localhost:4000/api/users/${user.id}/can-post`, {
+        method: "GET",
+        headers: { "x-user-id": user.id }
+      });
+
+      // If the middleware (or server) blocked this, grab the message and throw
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Action denied.");
+      }
+
+      // Success! Proceed to the posting page
+      router.push("/jobs/post");
+    } catch (err: any) {
+      alert(err.message || "Could not verify posting permissions.");
+    }
   };
 
   const handleGeocode = async () => {
@@ -419,7 +440,7 @@ export default function JobsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Open Jobs</h1>
         {user ? (
           <button
-            onClick={() => router.push("/jobs/post")}
+            onClick={handlePostJobClick}
             className="bg-foreground text-background px-4 py-2 text-sm rounded-full font-medium hover:opacity-90 transition-opacity"
           >
             + Post a Job
