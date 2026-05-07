@@ -216,11 +216,17 @@ app.get('/api/users/:id/profile', async (req, res) => {
       where: { id: req.params.id },
       include: {
         workerArchive: {
-          include: { seeker: { select: { id: true, name: true } } },
+          include: { 
+            seeker: { select: { id: true, name: true } },
+            reviews: { select: { authorId: true } }
+          },
           orderBy: { completedAt: 'desc' }
         },
         seekerArchive: {
-          include: { worker: { select: { id: true, name: true } } },
+          include: { 
+            worker: { select: { id: true, name: true } },
+            reviews: { select: { authorId: true } }
+          },
           orderBy: { completedAt: 'desc' }
         }
       }
@@ -290,6 +296,21 @@ app.get('/api/users/:id/public-profile', async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
       include: {
+        // Include the actual reviews received by this user
+        seekerReviews: {
+          include: { 
+            author: { select: { name: true } },
+            job: { select: { title: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
+        workerReviews: {
+          include: { 
+            author: { select: { name: true } },
+            job: { select: { title: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
         workerArchive: {
           include: { 
             seeker: { 
@@ -328,6 +349,8 @@ app.get('/api/users/:id/public-profile', async (req, res) => {
       workerRating: user.workerRating,
       workerReviewCount: user.workerReviewCount,
       createdAt: user.createdAt,
+      seekerReviews: user.seekerReviews,
+      workerReviews: user.workerReviews,
       completedJobs: user.workerArchive.length,
       
       workerComplete: user.workerArchive.map(job => ({
@@ -569,20 +592,20 @@ app.post('/api/jobs/:id/cancel', async (req, res) => {
 });
 
 app.post('/api/jobs/:id/complete', async (req, res) => {
-  try {
-    const job = await prisma.job.update({
-      where: { id: req.params.id },
-      data: { 
+  try {
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: { 
         status: JobStatus.AWAITING_EVALUATION,
         evaluationStartedAt: new Date()
       },
-      include: { worker: true }
-    });
-    broadcastUpdate({ type: "REFRESH_JOBS" });
-    res.json({ message: "Job submitted for evaluation.", job });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to submit job for evaluation." });
-  }
+      include: { worker: true }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job submitted for evaluation.", job });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to submit job for evaluation." });
+  }
 });
 
 app.post('/api/jobs/:id/approve', async (req, res) => {
@@ -625,20 +648,88 @@ app.post('/api/jobs/:id/approve', async (req, res) => {
 });
 
 app.post('/api/jobs/:id/reject', async (req, res) => {
-  try {
-    const job = await prisma.job.update({
-      where: { id: req.params.id },
-      data: { 
+  try {
+    const job = await prisma.job.update({
+      where: { id: req.params.id },
+      data: { 
         status: JobStatus.ACCEPTED,
         evaluationStartedAt: null // <-- ADD THIS LINE
       }, 
-      include: { worker: true }
-    });
-    broadcastUpdate({ type: "REFRESH_JOBS" });
-    res.json({ message: "Job returned to worker for improvements.", job });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to reject job." });
-  }
+      include: { worker: true }
+    });
+    broadcastUpdate({ type: "REFRESH_JOBS" });
+    res.json({ message: "Job returned to worker for improvements.", job });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to reject job." });
+  }
+});
+
+// POST /api/reviews - Create a review and update user ratings
+app.post('/api/reviews', async (req, res) => {
+  const { jobId, targetId, role, authorId, rating, comment } = req.body;
+
+  try {
+    // 1. Start a transaction to ensure rating updates and review creation happen together
+    const result = await prisma.$transaction(async (tx) => {
+      
+      // 2. Create the Review
+      const newReview = await tx.review.create({
+        data: {
+          rating: Number(rating),
+          comment,
+          jobId,
+          authorId,
+          // If role is seeker, the user being reviewed is the seeker
+          ...(role === 'seeker' ? { seekerId: targetId } : { workerId: targetId }),
+        },
+      });
+
+      // 3. Get the target user to calculate the new average
+      const targetUser = await tx.user.findUnique({
+        where: { id: targetId },
+        select: {
+          seekerRating: true,
+          seekerReviewCount: true,
+          workerRating: true,
+          workerReviewCount: true,
+        }
+      });
+
+      if (!targetUser) throw new Error("Target user not found");
+
+      // 4. Calculate new average based on the role being reviewed
+      if (role === 'seeker') {
+        const newCount = targetUser.seekerReviewCount + 1;
+        const newAverage = ((targetUser.seekerRating * targetUser.seekerReviewCount) + rating) / newCount;
+
+        await tx.user.update({
+          where: { id: targetId },
+          data: {
+            seekerRating: newAverage,
+            seekerReviewCount: newCount,
+          },
+        });
+      } else {
+        const newCount = targetUser.workerReviewCount + 1;
+        const newAverage = ((targetUser.workerRating * targetUser.workerReviewCount) + rating) / newCount;
+
+        await tx.user.update({
+          where: { id: targetId },
+          data: {
+            workerRating: newAverage,
+            workerReviewCount: newCount,
+          },
+        });
+      }
+
+      return newReview;
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    console.error("Review Submission Error:", error);
+    res.status(500).json({ error: error.message || "Failed to submit review" });
+  }
 });
 
 const PORT = 4000;
