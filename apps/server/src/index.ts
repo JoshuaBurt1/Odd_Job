@@ -415,6 +415,12 @@ app.get('/api/users/:id/profile', async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
       include: {
+        _count: {
+          select: {
+            seekerReviews: true,
+            workerReviews: true,
+          }
+        },
         workerArchive: {
           include: { 
             seeker: { select: { id: true, name: true } },
@@ -449,9 +455,9 @@ app.get('/api/users/:id/profile', async (req, res) => {
       userLat: user.userLat,
       userLong: user.userLong,
       seekerRating: user.seekerRating,
-      seekerReviewCount: user.seekerReviewCount,
+      seekerReviewCount: user._count.seekerReviews,
       workerRating: user.workerRating,
-      workerReviewCount: user.workerReviewCount,
+      workerReviewCount: user._count.workerReviews,
       createdAt: user.createdAt,
       completedJobs,
       earnings, // Now reflects the true landed amount
@@ -504,6 +510,12 @@ app.get('/api/users/:id/public-profile', async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
       include: {
+        _count: {
+          select: {
+            seekerReviews: true,
+            workerReviews: true,
+          }
+        },
         // Include the actual reviews received by this user
         seekerReviews: {
           include: { 
@@ -553,9 +565,9 @@ app.get('/api/users/:id/public-profile', async (req, res) => {
       id: user.id,
       name: user.name,
       seekerRating: user.seekerRating,
-      seekerReviewCount: user.seekerReviewCount,
+      seekerReviewCount: user._count.seekerReviews,
       workerRating: user.workerRating,
-      workerReviewCount: user.workerReviewCount,
+      workerReviewCount: user._count.workerReviews,
       createdAt: user.createdAt,
       seekerReviews: user.seekerReviews,
       workerReviews: user.workerReviews,
@@ -942,43 +954,26 @@ app.post('/api/reviews', async (req, res) => {
         },
       });
 
-      // 3. Get the target user to calculate the new average
-      const targetUser = await tx.user.findUnique({
-        where: { id: targetId },
-        select: {
-          seekerRating: true,
-          seekerReviewCount: true,
-          workerRating: true,
-          workerReviewCount: true,
+      // 2. Fetch ALL reviews for this user to get a 100% accurate count and average
+      const stats = await tx.review.aggregate({
+        where: role === 'seeker' ? { seekerId: targetId } : { workerId: targetId },
+        _count: true,
+        _avg: {
+          rating: true
         }
       });
 
-      if (!targetUser) throw new Error("Target user not found");
+      const newCount = stats._count;
+      const newAverage = stats._avg.rating || 0;
 
-      // 4. Calculate new average based on the role being reviewed
-      if (role === 'seeker') {
-        const newCount = targetUser.seekerReviewCount + 1;
-        const newAverage = ((targetUser.seekerRating * targetUser.seekerReviewCount) + rating) / newCount;
-
-        await tx.user.update({
-          where: { id: targetId },
-          data: {
-            seekerRating: newAverage,
-            seekerReviewCount: newCount,
-          },
-        });
-      } else {
-        const newCount = targetUser.workerReviewCount + 1;
-        const newAverage = ((targetUser.workerRating * targetUser.workerReviewCount) + rating) / newCount;
-
-        await tx.user.update({
-          where: { id: targetId },
-          data: {
-            workerRating: newAverage,
-            workerReviewCount: newCount,
-          },
-        });
-      }
+      // 3. Update the user with the bulletproof numbers
+      await tx.user.update({
+        where: { id: targetId },
+        data: {
+          [role === 'seeker' ? 'seekerRating' : 'workerRating']: newAverage,
+          [role === 'seeker' ? 'seekerReviewCount' : 'workerReviewCount']: newCount,
+        },
+      });
 
       return newReview;
     });
