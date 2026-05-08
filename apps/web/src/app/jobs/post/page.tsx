@@ -1,6 +1,7 @@
 // web/src/app/jobs/post/page.tsx
 "use client";
 import { useEffect, useState } from "react";
+import { PayPalButtons, PayPalScriptProvider } from "@paypal/react-paypal-js";
 import { useRouter } from "next/navigation";
 import { fetchGeocode } from "@/lib/geocoding";
 import { COMMON_TIMEZONES, detectUserTimezone } from "@/lib/timezones";
@@ -41,6 +42,44 @@ export default function PostJobPage() {
 
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  
+  const isFormValid = () => {
+    const numericPrice = parseFloat(formData.price);
+    return (
+      formData.title.trim() !== "" &&
+      !isNaN(numericPrice) &&
+      numericPrice > 0 &&
+      isAddressValid &&
+      formData.description.trim() !== ""
+    );
+  };
+
+  const finalizeJobCreation = async (paypalOrderId: string) => {
+    try {
+      const response = await fetch("http://localhost:4000/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          ...formData, 
+          price: parseFloat(formData.price),
+          radius: parseFloat(formData.radius),
+          orderID: paypalOrderId,
+          seekerId: user?.id,
+          lat: userLocation?.lat,
+          lng: userLocation?.lng
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || "Payment processed, but job creation failed.");
+      }
+      
+      router.push("/jobs");
+    } catch (error: any) {
+      setPostError(error.message);
+    }
+  };
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user"); 
@@ -84,44 +123,16 @@ export default function PostJobPage() {
     }
   };
 
-  const handlePostJob = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPostError("");
-    if (!user) return;
-
-    if (new Date(formData.startDate) < new Date() && formData.startDate !== dates.startDate) {
-       return setPostError("Start date cannot be in the past.");
-    }
-    if (new Date(formData.expiryDate) <= new Date(formData.startDate)) {
-       return setPostError("Expiry date must be after the start date.");
-    }
-
-    try {
-      const response = await fetch("http://localhost:4000/api/jobs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          ...formData, 
-          price: parseFloat(formData.price),
-          radius: parseFloat(formData.radius),
-          seekerId: user.id,
-          lat: userLocation?.lat || null,
-          lng: userLocation?.lng || null
-        })
-      });
-
-      if (!response.ok) throw new Error("Failed to post job.");
-      router.push("/jobs"); 
-    } catch (error: any) {
-      setPostError(error.message);
-    }
-  };
-
   return (
+    <PayPalScriptProvider options={{ 
+      clientId: process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || "",
+      currency: "CAD",
+      intent: "capture"
+    }}>
     <div className="p-6 md:p-10 max-w-2xl mx-auto w-full">
       <button 
         onClick={() => router.push("/jobs")}
-        className="mb-6 text-sm text-zinc-500 hover:text-black dark:hover:text-white flex items-center gap-2 transition-colors"
+        className="mb-6 text-sm text-zinc-500 hover:text-black flex items-center gap-2 transition-colors"
       >
         ← Back to Jobs
       </button>
@@ -130,7 +141,7 @@ export default function PostJobPage() {
         <h2 className="text-2xl font-bold mb-6">Post a New Job</h2>
         {postError && <p className="text-red-500 mb-4 text-sm">{postError}</p>}
         
-        <form onSubmit={handlePostJob} className="flex flex-col gap-5">
+        <div className="flex flex-col gap-5">
           <div>
             <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider text-zinc-500">Job Title</label>
             <input 
@@ -331,11 +342,49 @@ export default function PostJobPage() {
             />
           </div>
 
-          <button type="submit" className="w-full bg-black dark:bg-white text-white dark:text-black py-3 text-sm rounded-md font-bold hover:opacity-90 transition-opacity mt-2">
-            Publish Job Listing
-          </button>
-        </form>
+          {/* --- PAYPAL INTEGRATION SECTION REPLACE START --- */}
+          <div className="mt-8 border-t pt-6">
+            <h3 className="text-lg font-bold mb-4">Payment & Settlement</h3>
+            <p className="text-xs text-zinc-500 mb-6">
+              Funds will be held in escrow and released to the worker once the job is marked complete. 
+              You may cancel and refund before completion. By proceeding, you agree to our terms and conditions.
+            </p>
+
+            {isFormValid() ? (
+              <PayPalButtons
+                style={{ layout: "vertical", color: "black", shape: "rect" }}
+                createOrder={(data, actions) => {
+                  return actions.order.create({
+                    intent: "CAPTURE",
+                    purchase_units: [{
+                      amount: {
+                        currency_code: "CAD",
+                        value: formData.price,
+                      },
+                      description: `Escrow for: ${formData.title}`,
+                    }],
+                  });
+                }}
+                onApprove={async (data, actions) => {
+                  await finalizeJobCreation(data.orderID);
+                }}
+                onError={(err) => {
+                  setPostError("PayPal Checkout failed. Please try again.");
+                }}
+              />
+            ) : (
+              <button 
+                disabled 
+                className="w-full bg-zinc-100 text-zinc-400 py-3 rounded-md font-bold cursor-not-allowed border border-zinc-200"
+              >
+                Verify Details & Address to Unlock Payment
+              </button>
+            )}
+          </div>
+          {/* --- PAYPAL INTEGRATION SECTION REPLACE END --- */}
+        </div>
       </div>
     </div>
+    </PayPalScriptProvider>
   );
 }

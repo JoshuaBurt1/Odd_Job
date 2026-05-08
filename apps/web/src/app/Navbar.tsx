@@ -1,7 +1,7 @@
 // web/src/app/Navbar.tsx
 "use client";
 import Link from "next/link";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
 export default function Navbar() {
   const [user, setUser] = useState<{ id: string; name: string } | null>(null);
@@ -35,23 +35,43 @@ export default function Navbar() {
     };
   }, []);
 
-  // NEW: Fetch active job when user state changes or custom event fires
+  const fetchActiveJob = useCallback(() => {
+    if (user) {
+      fetch(`http://localhost:4000/api/users/${user.id}/active-job`)
+        .then(res => res.json())
+        .then(data => setActiveJob(data.activeJob || null))
+        .catch(console.error);
+    } else {
+      setActiveJob(null);
+    }
+  }, [user]);
+
+  // Handle Fetching and Event Listeners
   useEffect(() => {
-    const fetchActiveJob = () => {
-      if (user) {
-        fetch(`http://localhost:4000/api/users/${user.id}/active-job`)
-          .then(res => res.json())
-          .then(data => setActiveJob(data.activeJob || null))
-          .catch(console.error);
-      } else {
-        setActiveJob(null);
+    fetchActiveJob();
+
+    // 1. Listen for local state changes (Accept/Complete buttons clicked by THIS user)
+    window.addEventListener("job-status-changed", fetchActiveJob);
+
+    // 2. Listen for remote changes (Delete/Approve clicked by a Seeker) via SSE
+    const eventSource = new EventSource("http://localhost:4000/api/jobs/stream");
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "REFRESH_JOBS") {
+          fetchActiveJob();
+        }
+      } catch (error) {
+        console.error("SSE Error in Navbar:", error);
       }
     };
 
-    fetchActiveJob();
-    window.addEventListener("job-status-changed", fetchActiveJob);
-    return () => window.removeEventListener("job-status-changed", fetchActiveJob);
-  }, [user]);
+    return () => {
+      window.removeEventListener("job-status-changed", fetchActiveJob);
+      eventSource.close();
+    };
+  }, [fetchActiveJob]);
 
   const handleLogout = () => {
     localStorage.removeItem("user");

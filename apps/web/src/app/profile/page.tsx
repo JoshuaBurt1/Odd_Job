@@ -55,6 +55,7 @@ export default function ProfilePage() {
   const [locationError, setLocationError] = useState("");
 
   // Payment Edit State
+  const [showPaymentId, setShowPaymentId] = useState(false);
   const [isEditingPayment, setIsEditingPayment] = useState(false);
   const [paymentInput, setPaymentInput] = useState("");
 
@@ -288,31 +289,62 @@ export default function ProfilePage() {
                 )}
               </div>
 
-              {/* Payout Routing */}
+              {/* Payment and Payout Routing */}
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Payout Routing (Stripe/PayPal)</span>
-                  <button onClick={() => setIsEditingPayment(!isEditingPayment)} className="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                    PayPal Email
+                  </span>
+                  <button 
+                    onClick={() => setIsEditingPayment(!isEditingPayment)} 
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
                     {isEditingPayment ? "Cancel" : "Edit"}
                   </button>
                 </div>
+                
                 {isEditingPayment ? (
                   <div className="flex flex-col gap-2">
-                    <input 
-                      type="text" 
-                      value={paymentInput} 
-                      onChange={(e) => setPaymentInput(e.target.value)} 
-                      placeholder="Email or Routing ID"
+                    <input
+                      type="email"
+                      value={paymentInput}
+                      onChange={(e) => setPaymentInput(e.target.value)}
+                      placeholder="paypal-email@example.com"
                       className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-black text-black dark:text-white"
                     />
-                    <button onClick={handleSavePayment} className="w-full bg-black dark:bg-white text-white dark:text-black text-sm p-2 rounded-md font-bold">
-                      Save Payment Info
+                    <p className="text-[10px] text-zinc-500">
+                      Funds will be sent or received to this email when a job is completed.
+                    </p>
+                    <button 
+                      onClick={handleSavePayment} 
+                      className="w-full bg-black dark:bg-white text-white dark:text-black text-sm p-2 rounded-md font-bold"
+                    >
+                      Save PayPal Email
                     </button>
                   </div>
                 ) : (
-                  <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate font-mono bg-zinc-100 dark:bg-zinc-900 p-2 rounded border border-gray-200 dark:border-gray-800">
-                    {profile.paymentId ? "••••" + profile.paymentId.slice(-4) : "Not configured"}
-                  </p>
+                  <div className="flex items-center justify-between bg-zinc-100 dark:bg-zinc-900 p-3 rounded-xl border border-gray-200 dark:border-gray-800">
+                    <div className="flex items-center gap-3 truncate">
+                      <div className="w-8 h-8 shrink-0 bg-[#003087] rounded-full flex items-center justify-center text-white text-[10px] font-bold">
+                        PP
+                      </div>
+                      <p className="text-sm text-zinc-800 dark:text-zinc-200 truncate font-medium select-none">
+                        {profile.paymentId 
+                          ? (showPaymentId ? profile.paymentId : "••••••••••••••••") 
+                          : "No PayPal set up"}
+                      </p>
+                    </div>
+                    
+                    {profile.paymentId && (
+                      <button 
+                        type="button"
+                        onClick={() => setShowPaymentId(!showPaymentId)}
+                        className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors ml-2"
+                      >
+                        {showPaymentId ? "Hide" : "Show"}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

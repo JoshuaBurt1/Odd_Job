@@ -43,7 +43,7 @@ const PaymentTimer = ({ evaluationStartedAt }: { evaluationStartedAt: string }) 
     const getTargetDate = () => {
       const target = new Date(evaluationStartedAt);
       // Add 1 day to target the following day's midnight (effectively the next calendar day's end)
-      target.setDate(target.getDate() + 1);
+      target.setDate(target.getDate() + 0);
       target.setHours(23, 59, 59, 999);
       return target;
     };

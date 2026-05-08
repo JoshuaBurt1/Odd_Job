@@ -31,6 +31,142 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// PayPal API credentials from environment variables
+const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
+const PAYPAL_APP_SECRET = process.env.PAYPAL_APP_SECRET;
+const PAYPAL_API_BASE = process.env.PAYPAL_API_BASE || "https://api-m.sandbox.paypal.com";
+
+// Internal helper for server-side PayPal calls
+async function generatePayPalAccessToken() {
+  const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_APP_SECRET}`).toString("base64");
+  const response = await fetch(`${PAYPAL_API_BASE}/v1/oauth2/token`, {
+    method: "POST",
+    body: "grant_type=client_credentials",
+    headers: { 
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded" 
+    },
+  });
+  const data = await response.json();
+  return data.access_token;
+}
+
+// --- PAYPAL HELPERS ---
+
+/**
+ * Calculates the exact standard PayPal domestic fee deduction
+ * Used for logging and payouts when we don't have the live capture object
+ */
+const calculateNetAmount = (grossPrice: number) => {
+  return Number((grossPrice - (grossPrice * 0.029 + 0.30)).toFixed(2));
+};
+
+/**
+ * Captures an order created by the frontend PayPal SDK.
+ * Moves money from Seeker to the Platform immediately.
+ */
+async function capturePayPalOrder(orderID: string) {
+  const accessToken = await generatePayPalAccessToken();
+
+  const response = await fetch(`${PAYPAL_API_BASE}/v2/checkout/orders/${orderID}/capture`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("PayPal Capture Error:", data);
+    throw new Error("Failed to capture PayPal order.");
+  }
+
+  // Extract capture details including exact fee breakdown
+  const capture = data.purchase_units[0].payments.captures[0];
+  const captureId = capture.id;
+  const gross = parseFloat(capture.amount.value);
+  const fee = parseFloat(capture.seller_receivable_breakdown.paypal_fee.value);
+  const net = parseFloat(capture.seller_receivable_breakdown.net_amount.value);
+
+  console.log(`[PAYPAL API] Escrow Received: Gross $${gross.toFixed(2)} | Fee $${fee.toFixed(2)} | Net Landed $${net.toFixed(2)}`);
+
+  return { data, captureId, net };
+}
+
+/**
+ * Refunds a previously captured payment.
+ * If 'amount' is provided, it does a partial refund. If omitted, it refunds the full amount.
+ */
+async function refundPayPalPayment(captureId: string, amount?: number) {
+  const accessToken = await generatePayPalAccessToken();
+  
+  const payload = amount ? { 
+    amount: { value: amount.toFixed(2), currency_code: "CAD" }
+  } : {};
+
+  const response = await fetch(`${PAYPAL_API_BASE}/v2/payments/captures/${captureId}/refund`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    console.error("PayPal Refund Error:", errorData);
+    throw new Error("Failed to process PayPal refund.");
+  }
+
+  return await response.json();
+}
+
+/**
+ * Sends money from the Platform's Sandbox balance to the Worker's PayPal email.
+ */
+async function sendPayPalPayout(workerEmail: string, amount: number, jobTitle: string) {
+  const accessToken = await generatePayPalAccessToken();
+  
+  const payoutPayload = {
+    sender_batch_header: {
+      sender_batch_id: `batch_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      email_subject: `Payment for: ${jobTitle}`,
+      email_message: `You received $${amount.toFixed(2)} for completing "${jobTitle}" on Oddjob!`,
+    },
+    items: [
+      {
+        recipient_type: "EMAIL",
+        amount: {
+          value: amount.toFixed(2), // PayPal requires string/2 decimal places
+          currency: "CAD",
+        },
+        note: `Oddjob completion: ${jobTitle}`,
+        receiver: workerEmail,
+      },
+    ],
+  };
+
+  const response = await fetch(`${PAYPAL_API_BASE}/v1/payments/payouts`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payoutPayload),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    console.error("PayPal Payout Error:", errorData);
+    throw new Error("PayPal Payout Failed");
+  }
+
+  return await response.json();
+}
+
 /**
  * Middleware to ensure the user has a configured paymentId.
  * Assumes the user is passing the userId in the request, either 
@@ -76,21 +212,37 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 }
 
 // --- AUTOMATED CLEANUP TASK ---
-// 1. DATABASE PURGE: Deletes jobs that have been expired for x + days to keep the DB lean.
-//cron.schedule("0 14 * * *", async () => {
+// 1. DATABASE PURGE: Refunds seekers and deletes jobs that have been expired for x + days.
 cron.schedule("0 0 * * *", async () => {
   console.log("⏳ [DAILY CLEANUP] Checking for expired jobs...");
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7); // Change to -0 for testing without waiting 7 days
   
   try {
-    const result = await prisma.job.deleteMany({
+    const expiredJobs = await prisma.job.findMany({
       where: {
         expiryDate: { lte: sevenDaysAgo }
       }
     });
-    if (result.count > 0) {
-      console.log(`[CLEANUP] Deleted ${result.count} expired jobs.`);
+
+    if (expiredJobs.length > 0) {
+      let deletedCount = 0;
+      for (const job of expiredJobs) {
+        // Refund the seeker before purging
+        if (job.paypalCaptureId) {
+          try {
+            await refundPayPalPayment(job.paypalCaptureId);
+            const netAmount = calculateNetAmount(job.price);
+            console.log(`[PAYPAL API] Escrow Decremented (-$${netAmount.toFixed(2)}) | Seeker Incremented (+$${job.price.toFixed(2)}) | Auto-Purge Refund (CaptureID: ${job.paypalCaptureId})`);
+          } catch (refundErr) {
+            console.error(`[CLEANUP] Failed to refund job ${job.id}:`, refundErr);
+          }
+        }
+        
+        await prisma.job.delete({ where: { id: job.id } });
+        deletedCount++;
+      }
+      console.log(`[CLEANUP] Refunded and deleted ${deletedCount} expired jobs.`);
       broadcastUpdate({ type: "REFRESH_JOBS" });
     } else {
       console.log("[CLEANUP] No expired jobs found.");
@@ -99,7 +251,7 @@ cron.schedule("0 0 * * *", async () => {
     console.error("[CLEANUP ERROR]", err);
   }
 }, {
-  timezone: "America/Toronto" // Optional: Ensures it runs at midnight local time
+  timezone: "America/Toronto"
 });
 
 // 2. LIVE UI SYNC: Runs every 15 minutes
@@ -137,7 +289,7 @@ function calculateAutoPayDate(startDateStr: string | Date) {
   const target = new Date(startDateStr);
   
   // Simply add 1 day to reach the "following day"
-  target.setDate(target.getDate() + 1);
+  target.setDate(target.getDate() + 0);
   
   // Set expiration to the very last millisecond of that following day
   // This means at 00:00:00 of the day after, the job is officially expired.
@@ -145,8 +297,7 @@ function calculateAutoPayDate(startDateStr: string | Date) {
   return target;
 }
 
-// 3. AUTO-PAY CRON JOB
-// Runs strictly at 00:00 (Midnight) every day
+// --- AUTO-PAY CRON JOB ---
 cron.schedule('0 0 * * *', async () => {
   try {
     const now = new Date().getTime();
@@ -166,27 +317,42 @@ cron.schedule('0 0 * * *', async () => {
 
     for (const job of expiredJobs) {
       const workerId = job.workerId;
-      if (!workerId) continue; 
+      const workerEmail = job.worker?.paymentId;
       
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const completedJob = await tx.completedJob.create({
-          data: {
-            title: job.title,
-            type: job.type,
-            description: job.description,
-            price: job.price,
-            seekerId: job.seekerId,
-            workerId: workerId,
-            originalCreatedAt: job.createdAt
-          }
+      if (!workerId || !workerEmail) {
+        console.warn(`[AUTO-PAY] Skipping job ${job.id}: Worker Payment ID missing.`);
+        continue; 
+      }
+      
+      try {
+        const netAmount = calculateNetAmount(job.price);
+        console.log(`[PAYPAL API] Auto-releasing Escrow: Escrow Decremented (-$${netAmount.toFixed(2)}) | Worker Incremented (+$${netAmount.toFixed(2)}) to ${workerEmail}`);
+        
+        // Payout the true NET amount
+        await sendPayPalPayout(workerEmail, netAmount, job.title);
+
+        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+          await tx.completedJob.create({
+            data: {
+              title: job.title,
+              type: job.type,
+              description: job.description,
+              price: job.price,
+              seekerId: job.seekerId,
+              workerId: workerId,
+              originalCreatedAt: job.createdAt,
+              paypalCaptureId: job.paypalCaptureId
+            }
+          });
+          await tx.job.delete({ where: { id: job.id } });
         });
-        await tx.job.delete({ where: { id: job.id } });
-        console.log(`[PAYPAL API] Auto-releasing funds: $${completedJob.price}`);
-      });
+      } catch (err) {
+        console.error(`[AUTO-PAY FATAL] Could not process transaction for job ${job.id}:`, err);
+      }
     }
 
     broadcastUpdate({ type: "REFRESH_JOBS" });
-    console.log(`🧹 Auto-approved ${expiredJobs.length} jobs.`);
+    console.log(`🧹 Auto-approved and processed payments for ${expiredJobs.length} jobs.`);
   } catch (error) {
     console.error("Auto-approve cron job failed:", error);
   }
@@ -271,9 +437,10 @@ app.get('/api/users/:id/profile', async (req, res) => {
     }
 
     const completedJobs = user.workerArchive.length;
-    const earnings = user.workerArchive.reduce((total, job) => total + job.price, 0);
+    
+    // Calculate accurate actual earnings post-fees using the net helper
+    const earnings = user.workerArchive.reduce((total, job) => total + calculateNetAmount(job.price), 0);
 
-    // Injecting all the new User model fields
     res.json({
       name: user.name,
       email: user.email,
@@ -287,7 +454,7 @@ app.get('/api/users/:id/profile', async (req, res) => {
       workerReviewCount: user.workerReviewCount,
       createdAt: user.createdAt,
       completedJobs,
-      earnings,
+      earnings, // Now reflects the true landed amount
       workerComplete: user.workerArchive,
       seekerComplete: user.seekerArchive
     });
@@ -314,11 +481,18 @@ app.put('/api/users/:id/location', async (req, res) => {
 app.put('/api/users/:id/payment', async (req, res) => {
   try {
     const { paymentId } = req.body;
+    
+    // Basic validation: Is it a valid email?
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(paymentId)) {
+      return res.status(400).json({ error: "Please enter a valid PayPal email address." });
+    }
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { paymentId }
     });
-    res.json({ message: "Payment details updated successfully", user });
+    res.json({ message: "PayPal email updated successfully", user });
   } catch (error) {
     console.error("Payment Update Error:", error);
     res.status(500).json({ error: "Failed to update payment details" });
@@ -421,30 +595,37 @@ app.get('/api/users/:id/active-job', async (req, res) => {
   }
 });
 
-// app.get('/api/users/:id/can-post', requirePaymentSetup, (req, res) => {
-app.get('/api/users/:id/can-post', (req, res) => {
+
+app.get('/api/users/:id/can-post', requirePaymentSetup, (req, res) => {
+//app.get('/api/users/:id/can-post', (req, res) => {
   return res.json({ allowed: true });
 });
 
 // --- JOB ENDPOINTS ---
 app.post('/api/jobs', async (req, res) => {
   try {
-    const { title, type, description, price, seekerId, timezone, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    const { orderID, title, type, description, price, seekerId, timezone, startDate, expiryDate, address, lat, lng, radius } = req.body;
     
+    if (!orderID) {
+      return res.status(400).json({ error: "PayPal orderID is required to post a job." });
+    }
+
+    // 1. Capture the funds immediately (Escrow)
+    const { captureId, net } = await capturePayPalOrder(orderID);
+
+    // TEST: Post Job -> Escrow increments (Net), Seeker decrements (Gross)
+    console.log(`[PAYPAL API] Escrow Incremented (+$${net.toFixed(2)}) | Seeker Decremented (-$${parseFloat(price).toFixed(2)}) | CaptureID: ${captureId}`);
+
+    // 2. Save the job and the captureId to the database (Store gross price)
     const job = await prisma.job.create({
       data: { 
-        title, 
-        type, 
-        description, 
-        price: parseFloat(price), 
-        seekerId,
+        title, type, description, price: parseFloat(price), seekerId,
         timezone: timezone || "UTC",
         startDate: new Date(startDate),
         expiryDate: new Date(expiryDate),
-        address,
-        lat,
-        lng,
-        radius: radius ? parseFloat(radius) : null
+        address, lat, lng,
+        radius: radius ? parseFloat(radius) : null,
+        paypalCaptureId: captureId 
       }
     });
 
@@ -452,7 +633,7 @@ app.post('/api/jobs', async (req, res) => {
     res.json(job);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Failed to create job" });
+    res.status(500).json({ error: "Failed to create job or capture payment." });
   }
 });
 
@@ -516,32 +697,60 @@ app.get('/api/jobs/:id', async (req, res) => {
 
 app.put('/api/jobs/:id', async (req, res) => {
   try {
-    const { title, type, description, price, timezone, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    const { newOrderID, title, type, description, price, timezone, startDate, expiryDate, address, lat, lng, radius } = req.body;
+    const newPrice = parseFloat(price);
     
+    const existingJob = await prisma.job.findUnique({ where: { id: req.params.id } });
+    if (!existingJob) return res.status(404).json({ error: "Job not found" });
+
+    let finalCaptureId = existingJob.paypalCaptureId;
+
+    if (newPrice < existingJob.price && existingJob.paypalCaptureId) {
+      // 1. Price decreased: Issue a partial refund
+      const refundAmount = existingJob.price - newPrice;
+      const netRefundImpact = calculateNetAmount(refundAmount);
+      await refundPayPalPayment(existingJob.paypalCaptureId, refundAmount);
+
+      console.log(`[PAYPAL API] Escrow Decremented (-$${netRefundImpact.toFixed(2)}) | Seeker Incremented (+$${refundAmount.toFixed(2)}) | Partial Refund for CaptureID: ${existingJob.paypalCaptureId}`);
+      
+    } else if (newPrice > existingJob.price && existingJob.paypalCaptureId) {
+      // 2. Price increased: Require new order, refund old order entirely
+      if (!newOrderID) {
+        return res.status(400).json({ error: "Price increase requires a new PayPal orderID from the frontend." });
+      }
+      
+      const { captureId, net: newNet } = await capturePayPalOrder(newOrderID);
+      finalCaptureId = captureId;
+
+      console.log(`[PAYPAL API] Escrow Incremented (+$${newNet.toFixed(2)}) | Seeker Decremented (-$${newPrice.toFixed(2)}) | New CaptureID: ${captureId}`);
+
+      await refundPayPalPayment(existingJob.paypalCaptureId);
+      const oldNetImpact = calculateNetAmount(existingJob.price);
+
+      console.log(`[PAYPAL API] Escrow Decremented (-$${oldNetImpact.toFixed(2)}) | Seeker Incremented (+$${existingJob.price.toFixed(2)}) | Full Refund of Old CaptureID: ${existingJob.paypalCaptureId}`);
+    }
+
     const job = await prisma.job.update({
       where: { id: req.params.id },
       data: {
-        title,
-        type,
-        description,
-        price: parseFloat(price),
+        title, type, description, price: newPrice,
         timezone: timezone || "UTC",
         startDate: new Date(startDate),
         expiryDate: new Date(expiryDate),
-        address,
-        lat,
-        lng,
-        radius: radius ? parseFloat(radius) : null
+        address, lat, lng,
+        radius: radius ? parseFloat(radius) : null,
+        paypalCaptureId: finalCaptureId
       }
     });
 
     broadcastUpdate({ type: "REFRESH_JOBS" });
     res.json(job);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to update job" });
+  } catch (error: any) {
+    console.error("Modify Job Error:", error);
+    res.status(500).json({ error: error.message || "Failed to update job or process payment modification." });
   }
 });
+
 
 app.delete('/api/jobs/:id', async (req, res) => {
   const { userId } = req.body;
@@ -549,26 +758,27 @@ app.delete('/api/jobs/:id', async (req, res) => {
 
   try {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
-    if (!job) {
-      return res.status(404).json({ error: "Job not found." });
-    }
-    
-    if (job.seekerId !== userId) {
-      return res.status(403).json({ error: "Unauthorized. Only the user who posted the job can delete it." });
+    if (!job) return res.status(404).json({ error: "Job not found." });
+    if (job.seekerId !== userId) return res.status(403).json({ error: "Unauthorized." });
+
+    if (job.paypalCaptureId) {
+      await refundPayPalPayment(job.paypalCaptureId);
+      const netAmount = calculateNetAmount(job.price);
+      console.log(`[PAYPAL API] Escrow Decremented (-$${netAmount.toFixed(2)}) | Seeker Incremented (+$${job.price.toFixed(2)}) | Cancelled Job Refund (CaptureID: ${job.paypalCaptureId})`);
     }
 
     await prisma.job.delete({ where: { id: jobId } });
     
     broadcastUpdate({ type: "REFRESH_JOBS" });
-    res.json({ message: "Job successfully deleted." });
+    res.json({ message: "Job successfully deleted and funds refunded." });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Failed to delete job." });
+    res.status(500).json({ error: "Failed to delete job or process refund." });
   }
 });
 
-// app.post('/api/jobs/:id/accept', requirePaymentSetup, async (req, res) => {
-app.post('/api/jobs/:id/accept', async (req, res) => {
+app.post('/api/jobs/:id/accept', requirePaymentSetup, async (req, res) => {
+// app.post('/api/jobs/:id/accept', async (req, res) => {
   const { workerId, workerLat, workerLng } = req.body; 
   const jobId = req.params.id;
 
@@ -641,6 +851,7 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
       },
       include: { worker: true }
     });
+    
     broadcastUpdate({ type: "REFRESH_JOBS" });
     res.json({ message: "Job submitted for evaluation.", job });
   } catch (error) {
@@ -648,42 +859,49 @@ app.post('/api/jobs/:id/complete', async (req, res) => {
   }
 });
 
+// --- MANUAL APPROVE API ---
 app.post('/api/jobs/:id/approve', async (req, res) => {
   const jobId = req.params.id;
 
   try {
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const job = await tx.job.findUnique({ where: { id: jobId }, include: { worker: true } });
-      
-      if (!job || !job.workerId) {
-        throw new Error("Job not found or worker missing.");
-      }
+    const job = await prisma.job.findUnique({ 
+      where: { id: jobId }, 
+      include: { worker: true } 
+    });
+    
+    if (!job || !job.worker?.paymentId) {
+      return res.status(400).json({ error: "Job or worker payment details missing." });
+    }
 
+    const netAmount = calculateNetAmount(job.price);
+    console.log(`[PAYPAL API] Releasing Escrow funds: Escrow Decremented (-$${netAmount.toFixed(2)}) | Worker Incremented (+$${netAmount.toFixed(2)}) to ${job.worker.paymentId}`);
+    
+    // Send the NET amount to the worker
+    await sendPayPalPayout(job.worker.paymentId, netAmount, job.title);
+
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const completedJob = await tx.completedJob.create({
         data: {
           title: job.title,
           type: job.type,
           description: job.description,
-          price: job.price,
+          price: job.price, // Preserve gross in DB for history
           seekerId: job.seekerId,
-          workerId: job.workerId,
-          originalCreatedAt: job.createdAt
+          workerId: job.workerId!,
+          originalCreatedAt: job.createdAt,
+          paypalCaptureId: job.paypalCaptureId
         }
       });
 
       await tx.job.delete({ where: { id: jobId } });
-
-      return { completedJob, worker: job.worker };
+      return completedJob;
     });
 
     broadcastUpdate({ type: "REFRESH_JOBS" });
-    
-    console.log(`[PAYPAL API] Releasing funds: $${result.completedJob.price} to routing ID: ${result.worker?.paymentId || 'DEFAULT_TEST_ID'}`);
-    
-    res.json({ message: "Job completed, archived, and paid successfully.", job: result.completedJob });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to approve job." });
+    res.json({ message: "Job approved and worker paid.", job: result });
+  } catch (error: any) {
+    console.error("Approval Error:", error);
+    res.status(500).json({ error: error.message || "Failed to process approval and payment." });
   }
 });
 

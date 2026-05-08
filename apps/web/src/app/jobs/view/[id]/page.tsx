@@ -38,52 +38,6 @@ type Job = {
   evaluationStartedAt?: string | null;
 };
 
-const PaymentTimer = ({ evaluationStartedAt }: { evaluationStartedAt: string }) => {
-  const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
-
-  useEffect(() => {
-    if (!evaluationStartedAt) return;
-
-    const getTargetDate = () => {
-      const target = new Date(evaluationStartedAt);
-      // Add 1 day to target the following day's midnight (effectively the next calendar day's end)
-      target.setDate(target.getDate() + 1);
-      target.setHours(23, 59, 59, 999);
-      return target;
-    };
-
-    const targetTime = getTargetDate().getTime();
-
-    const interval = setInterval(() => {
-      const now = new Date().getTime();
-      const distance = targetTime - now;
-
-      if (distance <= 0) {
-        setTimeLeft("Processing Auto-Pay...");
-        clearInterval(interval);
-      } else {
-        // 1. Calculate total days remaining
-        const d = Math.floor(distance / (1000 * 60 * 60 * 24));
-        // 2. Extract remaining hours, minutes, and seconds
-        const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-        const s = Math.floor((distance % (1000 * 60)) / 1000);
-        
-        // 3. Display the days component if the distance is greater than 24 hours
-        if (d > 0) {
-          setTimeLeft(`${d}d ${h}h ${m}m ${s}s`);
-        } else {
-          setTimeLeft(`${h}h ${m}m ${s}s`);
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [evaluationStartedAt]);
-
-  return <span className="font-mono tracking-tight">{timeLeft}</span>;
-};
-
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -129,16 +83,25 @@ export default function ViewJobPage() {
 
   const fetchJob = useCallback(() => {
     fetch(`http://localhost:4000/api/jobs/${id}`)
-      .then(res => res.json())
+      .then(async (res) => {
+        if (res.status === 404) {
+          router.push("/jobs");
+          return null;
+        }
+        if (!res.ok) throw new Error("Failed to fetch job");
+        return res.json();
+      })
       .then(data => {
-        setJob(data);
-        setLoading(false);
+        if (data) {
+          setJob(data);
+          setLoading(false);
+        }
       })
       .catch(err => {
-        console.error(err);
+        console.error("Fetch error:", err);
         setLoading(false);
       });
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => {
     const eventSource = new EventSource("http://localhost:4000/api/jobs/stream");
