@@ -221,7 +221,8 @@ cron.schedule("0 0 * * *", async () => {
   try {
     const expiredJobs = await prisma.job.findMany({
       where: {
-        expiryDate: { lte: sevenDaysAgo }
+        expiryDate: { lte: sevenDaysAgo },
+        status: JobStatus.OPEN // Prevents purging ACCEPTED or AWAITING_EVALUATION jobs
       }
     });
 
