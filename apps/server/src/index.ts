@@ -1015,7 +1015,8 @@ app.post('/api/reviews', async (req, res) => {
   }
 });
 
-const PORT = 4000;
-app.listen(PORT, () => {
-  console.log(`🚀 Oddjob API running on http://localhost:${PORT}`);
+const PORT = Number(process.env.PORT) || 4000;
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Oddjob API running on port ${PORT}`);
 });
