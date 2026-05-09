@@ -1,9 +1,9 @@
-// web/src/app/jobs/view/[id]/UserClient.tsx 
+// web/src/app/jobs/view/ViewJobClient.tsx 
 
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation"; // CHANGED
 import 'leaflet/dist/leaflet.css';
 import { COMMON_TIMEZONES } from "@/lib/timezones";
 
@@ -47,7 +47,6 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
-// ensures the date is rendered according to the Job's timezone, not the worker User's local browser time.
 const formatJobDate = (dateString: string, tz: string) => {
   try {
     return new Date(dateString).toLocaleString(undefined, {
@@ -56,26 +55,29 @@ const formatJobDate = (dateString: string, tz: string) => {
       timeStyle: 'short',
     });
   } catch (e) {
-    // Fallback if timezone string is invalid
     return new Date(dateString).toLocaleString();
   }
 };
 
 export default function ViewJobPage() {
   const router = useRouter();
-  const params = useParams();
-  const id = params.id as string;
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") as string;
   const mapRef = useRef<HTMLDivElement>(null);
+
+  // --- ENVIRONMENT VARIABLE ---
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+  // ----------------------------
   
   const [job, setJob] = useState<Job | null>(null);
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
   const [userLocation, setUserLocation] = useState<{lat: number, lng: number, address?: string, hasStoredLocation: boolean} | null>(null);
   const [loading, setLoading] = useState(true);
-  const [hasActiveJob, setHasActiveJob] = useState(false); // NEW
+  const [hasActiveJob, setHasActiveJob] = useState(false);
 
   useEffect(() => {
     if (user) {
-      fetch(`http://localhost:4000/api/users/${user.id}/active-job`)
+      fetch(`${API_BASE}/api/users/${user.id}/active-job`)
         .then(res => res.json())
         .then(data => setHasActiveJob(!!data.activeJob))
         .catch(console.error);
@@ -83,7 +85,7 @@ export default function ViewJobPage() {
   }, [user, job]);
 
   const fetchJob = useCallback(() => {
-    fetch(`http://localhost:4000/api/jobs/${id}`)
+    fetch(`${API_BASE}/api/jobs/${id}`)
       .then(async (res) => {
         if (res.status === 404) {
           router.push("/jobs");
@@ -105,12 +107,11 @@ export default function ViewJobPage() {
   }, [id, router]);
 
   useEffect(() => {
-    const eventSource = new EventSource("http://localhost:4000/api/jobs/stream");
+    const eventSource = new EventSource(`${API_BASE}/api/jobs/stream`);
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // When any job update is broadcasted, re-fetch this specific job's data
         if (data.type === "REFRESH_JOBS") {
           fetchJob();
         }
@@ -221,43 +222,43 @@ export default function ViewJobPage() {
   const handleAcceptJob = async () => {
     if (!user) return router.push("/auth");
     try {
-      const res = await fetch(`http://localhost:4000/api/jobs/${job?.id}/accept`, {
+      const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workerId: user.id, workerLat: userLocation?.lat, workerLng: userLocation?.lng })
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to accept");
       fetchJob();
-      window.dispatchEvent(new Event("job-status-changed")); // NEW
+      window.dispatchEvent(new Event("job-status-changed"));
     } catch (err: any) { alert(err.message || "Could not accept job."); }
   };
 
   const handleCancelJob = async () => {
     try {
-      const res = await fetch(`http://localhost:4000/api/jobs/${job?.id}/cancel`, {
+      const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workerId: user?.id })
       });
       if (!res.ok) throw new Error("Failed to cancel");
       fetchJob();
-      window.dispatchEvent(new Event("job-status-changed")); // NEW
+      window.dispatchEvent(new Event("job-status-changed"));
     } catch (err) { alert("Could not cancel job."); }
   };
 
   const handleCompleteJob = async () => {
     try {
-      const res = await fetch(`http://localhost:4000/api/jobs/${job?.id}/complete`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/complete`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to complete");
       fetchJob();
-      window.dispatchEvent(new Event("job-status-changed")); // NEW
+      window.dispatchEvent(new Event("job-status-changed"));
     } catch (err) { alert("Could not complete job."); }
   };
 
   const handleApproveJob = async () => {
     if (!window.confirm("Approve and release funds?")) return;
     try {
-      const res = await fetch(`http://localhost:4000/api/jobs/${job?.id}/approve`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/approve`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to approve");
       alert("Job approved! Funds released.");
       router.push("/jobs");
@@ -266,7 +267,7 @@ export default function ViewJobPage() {
 
   const handleRejectJob = async () => {
     try {
-      const res = await fetch(`http://localhost:4000/api/jobs/${job?.id}/reject`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/reject`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to reject");
       fetchJob();
     } catch (err) { alert("Could not reject job."); }
@@ -347,7 +348,7 @@ export default function ViewJobPage() {
                 </div>
               )}
               {isPoster && job.status === 'OPEN' && (
-                <button onClick={() => router.push(`/jobs/modify/${job.id}`)} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors">
+                <button onClick={() => router.push(`/jobs/modify?id=${job.id}`)} className="w-full px-6 py-2.5 text-sm rounded-md font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors">
                   Modify Posting
                 </button>
               )}
@@ -371,7 +372,7 @@ export default function ViewJobPage() {
                 <div className="flex items-center gap-2">
                   {job.seeker ? (
                     <Link 
-                      href={`/users/${job.seeker.id}`}
+                      href={`/public-profile?id=${job.seeker.id}`} // This matches your new folder and query structure
                       className="font-semibold text-blue-600 dark:text-blue-400 hover:underline transition-colors"
                     >
                       {job.seeker.name}

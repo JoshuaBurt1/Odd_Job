@@ -7,6 +7,9 @@ import { fetchGeocode } from "@/lib/geocoding";
 import { COMMON_TIMEZONES, detectUserTimezone } from "@/lib/timezones";
 import { JOB_CATEGORIES } from "@/lib/jobTypes";
 
+// 1. Define the API base once outside the component
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
 export default function PostJobPage() {
   const router = useRouter();
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
@@ -56,7 +59,7 @@ export default function PostJobPage() {
 
   const finalizeJobCreation = async (paypalOrderId: string) => {
     try {
-      const response = await fetch("http://localhost:4000/api/jobs", {
+      const response = await fetch(`${API_BASE}/api/jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 

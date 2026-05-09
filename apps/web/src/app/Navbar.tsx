@@ -2,8 +2,13 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
+
+// 1. Define API base once at the top
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export default function Navbar() {
+  const router = useRouter();
   const [user, setUser] = useState<{ id: string; name: string } | null>(null);
   const [activeJob, setActiveJob] = useState<{ id: string; title: string } | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -37,7 +42,8 @@ export default function Navbar() {
 
   const fetchActiveJob = useCallback(() => {
     if (user) {
-      fetch(`http://localhost:4000/api/users/${user.id}/active-job`)
+      // 2. Updated to use API_BASE
+      fetch(`${API_BASE}/api/users/${user.id}/active-job`)
         .then(res => res.json())
         .then(data => setActiveJob(data.activeJob || null))
         .catch(console.error);
@@ -50,11 +56,11 @@ export default function Navbar() {
   useEffect(() => {
     fetchActiveJob();
 
-    // 1. Listen for local state changes (Accept/Complete buttons clicked by THIS user)
+    // Listen for local state changes
     window.addEventListener("job-status-changed", fetchActiveJob);
 
-    // 2. Listen for remote changes (Delete/Approve clicked by a Seeker) via SSE
-    const eventSource = new EventSource("http://localhost:4000/api/jobs/stream");
+    // 3. Updated SSE URL to use API_BASE
+    const eventSource = new EventSource(`${API_BASE}/api/jobs/stream`);
     
     eventSource.onmessage = (event) => {
       try {
@@ -78,7 +84,8 @@ export default function Navbar() {
     setUser(null);
     setDropdownOpen(false);
     window.dispatchEvent(new Event("storage")); 
-    window.location.href = "/";
+    // 4. Using router.push instead of window.location.href for a smoother transition
+    router.push("/");
   };
 
   return (
@@ -91,7 +98,6 @@ export default function Navbar() {
           Browse Jobs
         </Link>
         
-        {/* NEW: Render the active job link if they have one */}
         {activeJob && (
           <Link href={`/jobs/view/${activeJob.id}`} className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline transition-colors">
             Current Job: {activeJob.title}
@@ -109,7 +115,6 @@ export default function Navbar() {
             
             {dropdownOpen && (
               <div className="absolute right-0 mt-3 w-48 bg-white dark:bg-black border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg overflow-hidden flex flex-col">
-                
                 <Link 
                   href="/profile" 
                   onClick={() => setDropdownOpen(false)}
@@ -119,14 +124,13 @@ export default function Navbar() {
                 </Link>
 
                 <Link 
-                  href={`/users/${user.id}`} 
+                  href={`/public-profile?id=${user.id}`} 
                   onClick={() => setDropdownOpen(false)}
                   className="px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors border-b border-gray-100 dark:border-gray-800 text-zinc-800 dark:text-zinc-200"
                 >
                   Reviews
                 </Link>
 
-                {/* 3. LOGOUT BUTTON */}
                 <button 
                   onClick={handleLogout} 
                   className="w-full text-left px-4 py-3 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium"

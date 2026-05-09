@@ -383,7 +383,7 @@ export default function JobsPage() {
               </p>
             </div>
             <button
-              onClick={() => router.push(`/jobs/modify/${job.id}`)}
+              onClick={() => router.push(`/jobs/modify?id=${job.id}`)}
               className={btnSecondary}
             >
               Modify Post
@@ -395,7 +395,7 @@ export default function JobsPage() {
       return (
         <div className="flex items-center">
           <button
-            onClick={() => router.push(`/jobs/modify/${job.id}`)}
+            onClick={() => router.push(`/jobs/modify?id=${job.id}`)}
             className={btnSecondary}
           >
             Modify Post
@@ -423,7 +423,7 @@ export default function JobsPage() {
             if (!user) {
               router.push("/auth");
             } else {
-              router.push(`/jobs/view/${job.id}`);
+              router.push(`/jobs/view?id=${job.id}`);
             }
           }}
           className={btnSecondary}
@@ -611,7 +611,7 @@ export default function JobsPage() {
                           <strong>Posted By:</strong>{" "}
                           {job.seeker?.id ? (
                             <Link 
-                              href={`/users/${job.seeker.id}`}
+                              href={`/public-profile?id=${job.seeker.id}`}
                               className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
                             >
                               {job.seeker.name.split(' ')[0]}

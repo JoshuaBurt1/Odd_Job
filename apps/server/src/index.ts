@@ -673,14 +673,28 @@ app.get('/api/jobs', async (req, res) => {
             id: true,
             name: true,
             seekerRating: true,
-            seekerReviewCount: true 
+            // 1. Get the real-time count from the reviews table
+            _count: {
+              select: { seekerReviews: true }
+            }
           } 
         }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(jobs);
+
+    // 2. Map the results to flatten the count for the frontend
+    const flattenedJobs = jobs.map(job => ({
+      ...job,
+      seeker: job.seeker ? {
+        ...job.seeker,
+        seekerReviewCount: job.seeker._count.seekerReviews
+      } : null
+    }));
+
+    res.json(flattenedJobs);
   } catch (error) {
+    console.error("Fetch Jobs Error:", error);
     res.status(500).json({ error: "Failed to fetch jobs" });
   }
 });
@@ -696,14 +710,29 @@ app.get('/api/jobs/:id', async (req, res) => {
             id: true,
             name: true,
             seekerRating: true,
-            seekerReviewCount: true 
+            // 1. Get the real-time count
+            _count: {
+              select: { seekerReviews: true }
+            }
           } 
         }
       }
     });
+
     if (!job) return res.status(404).json({ error: "Job not found" });
-    res.json(job);
+
+    // 2. Flatten the count before sending to frontend
+    const response = {
+      ...job,
+      seeker: job.seeker ? {
+        ...job.seeker,
+        seekerReviewCount: job.seeker._count.seekerReviews
+      } : null
+    };
+
+    res.json(response);
   } catch (error) {
+    console.error("Fetch Job Detail Error:", error);
     res.status(500).json({ error: "Failed to fetch job" });
   }
 });

@@ -4,6 +4,8 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+
 function ReviewForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -12,7 +14,6 @@ function ReviewForm() {
   const targetId = searchParams.get("targetId");
   const role = searchParams.get("role"); // "seeker" or "worker"
 
-  // Read these directly from the search parameters!
   const initialJobTitle = searchParams.get("jobTitle") || "Job";
   const initialTargetName = searchParams.get("targetName") || "User";
 
@@ -28,12 +29,12 @@ function ReviewForm() {
   useEffect(() => {
     const fetchContext = async () => {
       try {
-        // If they weren't passed in the URL, try to fetch them from the backend
+        // If context wasn't passed in URL, fetch using the dynamic API_BASE
         if (!searchParams.get("jobTitle") || !searchParams.get("targetName")) {
-          const userRes = await fetch(`http://localhost:4000/api/users/${targetId}/public-profile`);
+          const userRes = await fetch(`${API_BASE}/api/users/${targetId}/public-profile`);
           const userData = await userRes.json();
           
-          const jobRes = await fetch(`http://localhost:4000/api/jobs/${jobId}`);
+          const jobRes = await fetch(`${API_BASE}/api/jobs/${jobId}`);
           const jobData = await jobRes.json();
 
           setTargetName(userData.name || "User");
@@ -66,14 +67,15 @@ function ReviewForm() {
     const user = JSON.parse(storedUser);
 
     try {
-      const response = await fetch("http://localhost:4000/api/reviews", {
+      // POST review using the dynamic API_BASE
+      const response = await fetch(`${API_BASE}/api/reviews`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jobId,
           targetId,
           role,
-          authorId: user.id, // Ensure your backend checks this against a secure session cookie!
+          authorId: user.id,
           rating,
           comment,
         }),

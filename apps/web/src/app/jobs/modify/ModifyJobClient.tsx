@@ -1,8 +1,8 @@
-//web/src/app/jobs/modify/[id]/UserClient.tsx
+//web/src/app/jobs/modify/ModifyJobClient.tsx
 
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation"; // CHANGED
 import { PayPalButtons, PayPalScriptProvider } from "@paypal/react-paypal-js";
 import { fetchGeocode } from "@/lib/geocoding";
 import { COMMON_TIMEZONES } from "@/lib/timezones";
@@ -10,8 +10,12 @@ import { JOB_CATEGORIES } from "@/lib/jobTypes";
 
 export default function ModifyJobPage() {
   const router = useRouter();
-  const params = useParams();
-  const id = params.id as string;
+  
+  // CHANGED: Extract ID from query parameter
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") as string;
+  
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
   const [user, setUser] = useState<{ id: string; name: string } | null>(null);
   const [postError, setPostError] = useState("");
@@ -19,7 +23,6 @@ export default function ModifyJobPage() {
   const [isAddressValid, setIsAddressValid] = useState(true);
   const [hasPropertyNumber, setHasPropertyNumber] = useState(true);
   
-  // Track the original price to calculate differences
   const [originalPrice, setOriginalPrice] = useState<number>(0);
 
   const [formData, setFormData] = useState({
@@ -46,7 +49,7 @@ export default function ModifyJobPage() {
       setUser(JSON.parse(storedUser));
     }
 
-    fetch(`http://localhost:4000/api/jobs/${id}`)
+    fetch(`${API_BASE}/api/jobs/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error("Job not found");
         return res.json();
@@ -115,11 +118,10 @@ export default function ModifyJobPage() {
     }
   };
 
-  // Helper function to process the actual API request
   const submitUpdate = async (newOrderID?: string) => {
     const numericPrice = parseFloat(formData.price);
     
-    const response = await fetch(`http://localhost:4000/api/jobs/${id}`, {
+    const response = await fetch(`${API_BASE}/api/jobs/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -130,7 +132,7 @@ export default function ModifyJobPage() {
         radius: parseFloat(formData.radius),
         lat: userLocation?.lat || null,
         lng: userLocation?.lng || null,
-        newOrderID: newOrderID // Optional: only passed if price increases
+        newOrderID: newOrderID
       }),
     });
 
@@ -154,7 +156,6 @@ export default function ModifyJobPage() {
       return setPostError("Expiry date must be after the start date.");
     }
 
-    // Prevent bypassing PayPal if price increased
     if (numericPrice > originalPrice) {
         return setPostError("Please use the PayPal button below to authorize the increased bounty.");
     }
@@ -172,7 +173,7 @@ export default function ModifyJobPage() {
 
     setPostError("");
     try {
-      const response = await fetch(`http://localhost:4000/api/jobs/${id}`, {
+      const response = await fetch(`${API_BASE}/api/jobs/${id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),

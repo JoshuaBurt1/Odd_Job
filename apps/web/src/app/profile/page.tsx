@@ -5,20 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchGeocode } from "../../lib/geocoding";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 type ArchiveJob = {
   id: string;
   title: string;
   price: number;
   completedAt: string;
-  worker?: { 
-    id: string; 
-    name: string; 
-  };
-  seeker?: { 
-    id: string; 
-    name: string; 
-  };
+  worker?: { id: string; name: string; };
+  seeker?: { id: string; name: string; };
   reviews?: { authorId: string }[];
 };
 
@@ -70,7 +65,7 @@ export default function ProfilePage() {
     const user = JSON.parse(storedUser);
     window.dispatchEvent(new Event("storage"));
 
-    fetch(`http://localhost:4000/api/users/${user.id}/profile`)
+    fetch(`${API_BASE}/api/users/${user.id}/profile`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed");
         return res.json();
@@ -92,7 +87,7 @@ export default function ProfilePage() {
   const handleLogout = () => {
     localStorage.removeItem("user");
     window.dispatchEvent(new Event("storage")); 
-    window.location.href = "/";
+    router.push("/");
   };
 
   const handleGeocode = async () => {
@@ -133,7 +128,7 @@ export default function ProfilePage() {
     }
     
     try {
-      const response = await fetch(`http://localhost:4000/api/users/${profile.id}/location`, {
+      const response = await fetch(`${API_BASE}/api/users/${profile.id}/location`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: addressInput, userLat: newLat, userLong: newLong })
@@ -151,7 +146,7 @@ export default function ProfilePage() {
   const handleSavePayment = async () => {
     if (!profile) return;
     try {
-      const response = await fetch(`http://localhost:4000/api/users/${profile.id}/payment`, {
+      const response = await fetch(`${API_BASE}/api/users/${profile.id}/payment`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paymentId: paymentInput })
@@ -214,7 +209,7 @@ export default function ProfilePage() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 {/* Worker Link */}
                 <Link 
-                  href={`/users/${profile.id}`}
+                  href={`/public-profile?id=${profile.id}`}
                   className="flex flex-col items-center p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-gray-100 dark:border-gray-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group"
                 >
                   <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-1">Worker</span>
@@ -225,7 +220,7 @@ export default function ProfilePage() {
 
                 {/* Seeker Link */}
                 <Link 
-                  href={`/users/${profile.id}`}
+                  href={`/public-profile?id=${profile.id}`}
                   className="flex flex-col items-center p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl border border-gray-100 dark:border-gray-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-all group"
                 >
                   <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold mb-1">Seeker</span>
@@ -379,7 +374,7 @@ export default function ProfilePage() {
                       <p className="text-xs text-zinc-500 mt-1">
                         Completed on {new Date(job.completedAt).toLocaleDateString()} for{" "}
                         <Link 
-                          href={`/users/${job.seeker?.id}`} 
+                          href={`/public-profile?id=${job.seeker?.id}`}
                           className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
                         >
                           {job.seeker?.name}
@@ -422,8 +417,8 @@ export default function ProfilePage() {
                       <h3 className="font-semibold text-md text-zinc-700 dark:text-zinc-300">{job.title}</h3>
                       <p className="text-xs text-zinc-500 mt-1">
                         Completed on {new Date(job.completedAt).toLocaleDateString()} by{" "}
-                        <Link 
-                          href={`/users/${job.worker?.id}`} 
+                        <Link
+                          href={`/public-profile?id=${job.worker?.id}`}
                           className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
                         >
                           {job.worker?.name}

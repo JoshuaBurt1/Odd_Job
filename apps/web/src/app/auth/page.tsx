@@ -61,7 +61,8 @@ export default function AuthPage() {
       : { name, email, password, address, userLat, userLong };
 
     try {
-      const response = await fetch(`http://localhost:4000${endpoint}`, {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+      const response = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

@@ -1,9 +1,10 @@
-//web/src/app/users/[id]/UserClient.tsx 
+//web/src/app/public-profile/UserClient.tsx 
 
 "use client";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 type Review = {
   id: string;
@@ -30,13 +31,15 @@ type PublicProfile = {
 };
 
 export default function PublicProfilePage() {
-  const { id } = useParams();
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id"); 
+
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
-    fetch(`http://localhost:4000/api/users/${id}/public-profile`)
+    fetch(`${API_BASE}/api/users/${id}/public-profile`)
       .then((res) => res.json())
       .then((data) => {
         setProfile(data);
