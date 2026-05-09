@@ -29,7 +29,15 @@ const prisma = new PrismaClient({ adapter });
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://odd-job-3413.web.app",
+    "http://localhost:3000"
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-user-id"],
+  credentials: true
+}));
 
 // PayPal API credentials from environment variables
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
