@@ -27,17 +27,31 @@ const adapter = new PrismaPg(pool);
 
 const prisma = new PrismaClient({ adapter });
 
+const allowedOrigins = [
+  "https://odd-job-3413.web.app",
+  "https://odd-job-3413.firebaseapp.com", // Firebase often uses both
+  "http://localhost:3000"
+];
+
 const app = express();
-app.use(express.json());
 app.use(cors({
-  origin: [
-    "https://odd-job-3413.web.app",
-    "http://localhost:3000"
-  ],
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-user-id"],
-  credentials: true
+  credentials: true,
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 }));
+
+app.use(express.json());
 
 // PayPal API credentials from environment variables
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
