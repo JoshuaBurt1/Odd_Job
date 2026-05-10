@@ -10,4 +10,4 @@ Odd job posting site.
 
 ## Getting Starteds
 
-https://odd-job-3413.web.app/
+https://odd-job.web.app/

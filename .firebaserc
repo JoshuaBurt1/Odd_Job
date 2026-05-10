@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "odd-job-3413"
-  }
+  },
+  "targets": {
+    "odd-job-3413": {
+      "hosting": {
+        "main-site": [
+          "odd-job"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

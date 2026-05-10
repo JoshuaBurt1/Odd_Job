@@ -12,18 +12,33 @@ const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
 // =========================================================
-// 1. HEALTH CHECKS (Placed high up for Render's pinger)
+// 1. CORS CONFIGURATION
 // =========================================================
-app.get("/", (req, res) => {
-  res.send("Odd Job Maintenance API is Live.");
-});
+const allowedOrigins = [
+  "https://odd-job.web.app",
+  "https://odd-job-3413.web.app",
+  "https://odd-job-3413.firebaseapp.com",
+  "http://localhost:3000"
+];
 
-app.get("/health", (req, res) => {
-  res.json({ status: "API is running, scheduler is active." });
-});
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    // Use .includes or find to ensure exact match
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS Blocked: ${origin} not allowed.`));
+    }
+  },
+  credentials: true,
+}));
 
-console.log("Database Host:", process.env.DB_HOST);
+app.use(express.json()); 
 
+// =========================================================
+// 2. DATABASE & PRISMA SETUP
+// =========================================================
 const aivenConfig = {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
@@ -38,29 +53,41 @@ const aivenConfig = {
 
 const pool = new Pool(aivenConfig);
 const adapter = new PrismaPg(pool);
-
 const prisma = new PrismaClient({ adapter });
 
-app.use(express.json()); 
+// =========================================================
+// 3. ENHANCED HEALTH CHECKS (Checks Database Connection)
+// =========================================================
+app.get("/", (req, res) => {
+  res.send("Odd Job Maintenance API is Live.");
+});
 
-const allowedOrigins = [
-  "https://odd-job-3413.web.app",
-  "https://odd-job-3413.firebaseapp.com", // Firebase often uses both
-  "http://localhost:3000"
-];
+app.get("/health", async (req, res) => {
+  try {
+    // This "pings" the database to ensure the connection is active
+    await prisma.$queryRaw`SELECT 1`;
+    
+    res.json({ 
+      status: "API is running", 
+      database: "Connected",
+      timestamp: new Date().toISOString(),
+      env: process.env.NODE_ENV
+    });
+  } catch (error: any) {
+    console.error("Health Check DB Error:", error);
+    res.status(500).json({ 
+      status: "Error", 
+      database: "Disconnected",
+      error: error.message,
+      hint: "Check your DB credentials and SSL CA in Render environment variables."
+    });
+  }
+});
 
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-}));
-
+// =========================================================
+// 4. PayPal, Cron, Location LOGIC
+// =========================================================
+//
 
 // PayPal API credentials from environment variables
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
@@ -390,7 +417,9 @@ cron.schedule('0 0 * * *', async () => {
   }
 }, { timezone: "America/Toronto" });
 
-// --- REAL-TIME SSE LOGIC ---
+// =========================================================
+// 5. REAL-TIME SSE LOGIC (Fixed for 500 Errors)
+// =========================================================
 let clients: any[] = [];
 
 const broadcastUpdate = (data: any) => {
@@ -398,17 +427,21 @@ const broadcastUpdate = (data: any) => {
 };
 
 app.get('/api/jobs/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
+  // Add explicit success status to prevent browser "500" confusion
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': req.headers.origin || '*' // Backup CORS header
+  });
 
   res.write(': connected\n\n'); 
 
-  clients.push(res);
+  const newClient = res;
+  clients.push(newClient);
 
   req.on('close', () => {
-    clients = clients.filter(client => client !== res);
+    clients = clients.filter(client => client !== newClient);
   });
 });
 
