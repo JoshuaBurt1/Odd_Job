@@ -46,9 +46,9 @@ const aivenConfig = {
     port: Number(process.env.DB_PORT),
     database: process.env.DB_NAME,
     ssl: {
-        rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
-        ca: process.env.DB_SSL_CA ? process.env.DB_SSL_CA.split('\\n').join('\n') : undefined,
-    },
+      rejectUnauthorized: false, 
+      ca: process.env.DB_SSL_CA ? process.env.DB_SSL_CA.split('\\n').join('\n') : undefined,
+  },
 };
 
 const pool = new Pool(aivenConfig);
