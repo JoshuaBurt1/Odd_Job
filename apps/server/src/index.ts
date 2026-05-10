@@ -8,6 +8,10 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import cors from 'cors';
 import cron from 'node-cron';
 
+const app = express();
+const PORT = Number(process.env.PORT) || 4000;
+
+
 console.log("Database Host:", process.env.DB_HOST);
 
 const aivenConfig = {
@@ -27,31 +31,26 @@ const adapter = new PrismaPg(pool);
 
 const prisma = new PrismaClient({ adapter });
 
+app.use(express.json()); 
+
 const allowedOrigins = [
   "https://odd-job-3413.web.app",
   "https://odd-job-3413.firebaseapp.com", // Firebase often uses both
   "http://localhost:3000"
 ];
 
-const app = express();
 app.use(cors({
-  origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
+  origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error("Not allowed by CORS"));
     }
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-user-id"],
   credentials: true,
-  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 }));
 
-app.use(express.json());
 
 // PayPal API credentials from environment variables
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
@@ -1037,8 +1036,16 @@ app.post('/api/reviews', async (req, res) => {
   }
 });
 
-const PORT = Number(process.env.PORT) || 4000;
+// =========================================================
+// SERVER START
+// =========================================================
+
+const isProd = process.env.NODE_ENV === "production";
+const SERVER_URL = isProd 
+  ? "https://odd-job-ke1z.onrender.com" 
+  : `http://localhost:${PORT}`;
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Oddjob API running on port ${PORT}`);
+  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(`📡 Health check: ${SERVER_URL}/health`);
 });
