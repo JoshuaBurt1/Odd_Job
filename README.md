@@ -11,5 +11,3 @@ Odd job posting site.
 ## Getting Starteds
 
 https://odd-job-3413.web.app/
-
-The jobs are only visible within a certain radius of your location. To view the test job postings, use: 201 Fairview Road, Barrie, ON L4N 9B1

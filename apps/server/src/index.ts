@@ -11,6 +11,16 @@ import cron from 'node-cron';
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
 
+// =========================================================
+// 1. HEALTH CHECKS (Placed high up for Render's pinger)
+// =========================================================
+app.get("/", (req, res) => {
+  res.send("Odd Job Maintenance API is Live.");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ status: "API is running, scheduler is active." });
+});
 
 console.log("Database Host:", process.env.DB_HOST);
 
@@ -22,7 +32,7 @@ const aivenConfig = {
     database: process.env.DB_NAME,
     ssl: {
         rejectUnauthorized: process.env.NODE_ENV === 'production' ? true : false,
-        ca: process.env.DB_SSL_CA ? process.env.DB_SSL_CA.replace(/\\n/g, '\n') : undefined,
+        ca: process.env.DB_SSL_CA ? process.env.DB_SSL_CA.split('\\n').join('\n') : undefined,
     },
 };
 
