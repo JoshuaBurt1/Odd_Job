@@ -4,8 +4,10 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-
+const API_BASE = typeof window !== "undefined" && window.location.hostname === "localhost"
+  ? "http://localhost:4000"
+  : "https://odd-job-ke1z.onrender.com";
+  
 type Review = {
   id: string;
   rating: number;

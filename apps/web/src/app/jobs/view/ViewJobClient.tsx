@@ -65,9 +65,9 @@ export default function ViewJobPage() {
   const id = searchParams.get("id") as string;
   const mapRef = useRef<HTMLDivElement>(null);
 
-  // --- ENVIRONMENT VARIABLE ---
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
-  // ----------------------------
+  const API_BASE = typeof window !== "undefined" && window.location.hostname === "localhost"
+  ? "http://localhost:4000"
+  : "https://odd-job-ke1z.onrender.com";
   
   const [job, setJob] = useState<Job | null>(null);
   const [user, setUser] = useState<{id: string, name: string} | null>(null);
@@ -220,18 +220,29 @@ export default function ViewJobPage() {
   }, [loading, job, userLocation]);
 
   const handleAcceptJob = async () => {
-    if (!user) return router.push("/auth");
-    try {
-      const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/accept`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workerId: user.id, workerLat: userLocation?.lat, workerLng: userLocation?.lng })
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed to accept");
-      fetchJob();
-      window.dispatchEvent(new Event("job-status-changed"));
-    } catch (err: any) { alert(err.message || "Could not accept job."); }
-  };
+  if (!user) return router.push("/auth");
+  
+  try {
+    const res = await fetch(`${API_BASE}/api/jobs/${job?.id}/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        workerId: user.id, 
+        workerLat: userLocation?.lat, 
+        workerLng: userLocation?.lng 
+      })
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.message || errorData.error || "Failed to accept");
+    }
+    fetchJob();
+    window.dispatchEvent(new Event("job-status-changed"));
+  } catch (err: any) { 
+    alert(err.message || "Could not accept job."); 
+  }
+};
 
   const handleCancelJob = async () => {
     try {

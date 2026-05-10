@@ -107,20 +107,26 @@ export default function JobsPage() {
   const [filterRadius, setFilterRadius] = useState<number>(50);
   const [isRadiusFilterActive, setIsRadiusFilterActive] = useState<boolean>(false);
 
+  const API_BASE = typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? "http://localhost:4000"
+    : "https://odd-job-ke1z.onrender.com";
+
   const fetchJobs = (currentUser: {id: string} | null = user) => {
     setLoading(true);
     const url = currentUser
-      ? `http://localhost:4000/api/jobs?userId=${currentUser.id}`
-      : "http://localhost:4000/api/jobs";
+      ? `${API_BASE}/api/jobs?userId=${currentUser.id}`
+      : `${API_BASE}/api/jobs`; // Also fixed the string interpolation here
 
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
-        setJobs(data);
+        // FIX: Ensure data is an array. If server sends { error: "..." }, use empty array.
+        setJobs(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch((err) => {
         console.error("Failed to fetch jobs", err);
+        setJobs([]); // Reset to empty array on error to prevent crash
         setLoading(false);
       });
   };
@@ -129,7 +135,7 @@ export default function JobsPage() {
     if (!user) return router.push("/auth");
 
     try {
-      const res = await fetch(`http://localhost:4000/api/users/${user.id}/can-post`, {
+      const res = await fetch(`${API_BASE}/api/users/${user.id}/can-post`, {
         method: "GET",
         headers: { "x-user-id": user.id }
       });
@@ -200,7 +206,7 @@ export default function JobsPage() {
     } else {
       // Helper function for profile fallback
       const fetchProfileLocation = (userId: string) => {
-        fetch(`http://localhost:4000/api/users/${userId}/profile`)
+        fetch(`${API_BASE}/api/users/${userId}/profile`)
           .then((res) => res.json())
           .then((data) => {
             if (data.userLat && data.userLong) {
@@ -236,7 +242,7 @@ export default function JobsPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const eventSource = new EventSource('http://localhost:4000/api/jobs/stream');
+    const eventSource = new EventSource(`${API_BASE}/api/jobs/stream`);
     
     eventSource.onmessage = (event) => {
       try {
@@ -345,7 +351,7 @@ export default function JobsPage() {
               <button
                 onClick={async () => {
                   try {
-                    await fetch(`http://localhost:4000/api/jobs/${job.id}/reject`, { method: "POST" });
+                    await fetch(`${API_BASE}/api/jobs/${job.id}/reject`, { method: "POST" });
                   } catch (err) {
                     console.error("Failed to request improvement", err);
                   }
@@ -357,7 +363,7 @@ export default function JobsPage() {
               <button
                 onClick={async () => {
                   try {
-                    await fetch(`http://localhost:4000/api/jobs/${job.id}/approve`, { method: "POST" });
+                    await fetch(`${API_BASE}/api/jobs/${job.id}/approve`, { method: "POST" });
                   } catch (err) {
                     console.error("Failed to approve and pay", err);
                   }

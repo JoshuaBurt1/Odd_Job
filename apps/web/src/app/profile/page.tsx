@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchGeocode } from "../../lib/geocoding";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = typeof window !== "undefined" && window.location.hostname === "localhost"
+  ? "http://localhost:4000"
+  : "https://odd-job-ke1z.onrender.com";
 
 type ArchiveJob = {
   id: string;
@@ -53,6 +55,7 @@ export default function ProfilePage() {
   const [showPaymentId, setShowPaymentId] = useState(false);
   const [isEditingPayment, setIsEditingPayment] = useState(false);
   const [paymentInput, setPaymentInput] = useState("");
+  const [paymentError, setPaymentError] = useState("");
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -145,18 +148,34 @@ export default function ProfilePage() {
 
   const handleSavePayment = async () => {
     if (!profile) return;
+    setPaymentError("");
+
+    // Client-side validation: must match email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = paymentInput.trim();
+
+    if (!emailRegex.test(cleanEmail)) {
+      setPaymentError("Your email is not formatted correctly");
+      return; // Discard and exit
+    }
+
     try {
       const response = await fetch(`${API_BASE}/api/users/${profile.id}/payment`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId: paymentInput })
+        body: JSON.stringify({ paymentId: cleanEmail })
       });
 
-      if (!response.ok) throw new Error("Failed to update payment details");
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update payment details");
+      }
       
-      setProfile({ ...profile, paymentId: paymentInput });
+      setProfile({ ...profile, paymentId: cleanEmail });
+      setPaymentInput(cleanEmail);
       setIsEditingPayment(false);
     } catch (err: any) {
+      setPaymentError(err.message);
       console.error(err);
     }
   };
@@ -303,10 +322,23 @@ export default function ProfilePage() {
                     <input
                       type="email"
                       value={paymentInput}
-                      onChange={(e) => setPaymentInput(e.target.value)}
+                      onChange={(e) => {
+                        setPaymentInput(e.target.value);
+                        if (paymentError) setPaymentError(""); // Clear error while typing
+                      }}
                       placeholder="paypal-email@example.com"
-                      className="w-full text-sm p-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-black text-black dark:text-white"
+                      className={`w-full text-sm p-2 border rounded-md bg-white dark:bg-black text-black dark:text-white ${
+                        paymentError ? "border-red-500" : "border-gray-300 dark:border-gray-700"
+                      }`}
                     />
+                    
+                    {/* Red error message underneath the field */}
+                    {paymentError && (
+                      <p className="text-red-500 text-[11px] font-bold animate-pulse">
+                        {paymentError}
+                      </p>
+                    )}
+
                     <p className="text-[10px] text-zinc-500">
                       Funds will be sent or received to this email when a job is completed.
                     </p>

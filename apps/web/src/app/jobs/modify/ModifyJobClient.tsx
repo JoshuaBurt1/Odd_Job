@@ -15,7 +15,9 @@ export default function ModifyJobPage() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id") as string;
   
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+  const API_BASE = typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? "http://localhost:4000"
+    : "https://odd-job-ke1z.onrender.com";
 
   const [user, setUser] = useState<{ id: string; name: string } | null>(null);
   const [postError, setPostError] = useState("");

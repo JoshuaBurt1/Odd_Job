@@ -67,8 +67,6 @@ model User {
   seekerReviews  Review[] @relation("SeekerReviews")
   workerReviews  Review[] @relation("WorkerReviews")
   writtenReviews Review[] @relation("WrittenReviews")
-  
-  @@map("users") // This maps the "User" model to a table named "users"
 }
 
 model Job {

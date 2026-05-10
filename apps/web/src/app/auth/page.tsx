@@ -61,7 +61,9 @@ export default function AuthPage() {
       : { name, email, password, address, userLat, userLong };
 
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+      const API_BASE = typeof window !== "undefined" && window.location.hostname === "localhost"
+        ? "http://localhost:4000"
+        : "https://odd-job-ke1z.onrender.com";
       const response = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
