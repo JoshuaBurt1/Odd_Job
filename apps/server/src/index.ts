@@ -674,7 +674,6 @@ app.get('/api/users/:id/active-job', async (req, res) => {
 
 
 app.get('/api/users/:id/can-post', requirePaymentSetup, (req, res) => {
-//app.get('/api/users/:id/can-post', (req, res) => {
   return res.json({ allowed: true });
 });
 
