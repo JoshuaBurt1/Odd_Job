@@ -43,7 +43,7 @@ const PaymentTimer = ({ evaluationStartedAt }: { evaluationStartedAt: string }) 
 
     const getTargetDate = () => {
       const target = new Date(evaluationStartedAt);
-      target.setDate(target.getDate() + 0);
+      target.setDate(target.getDate() + 1);
       target.setHours(23, 59, 59, 999);
       return target;
     };
@@ -276,8 +276,17 @@ export default function JobsPage() {
   }, [jobs, user]);
 
   const groupAndSortJobs = () => {
-    const grouped: Record<string, Job[]> = {};
-    
+    // 1. Helper to determine individual job rank
+    const getRank = (job: Job) => {
+      if (user && job.seekerId === user.id && ['ACCEPTED', 'AWAITING_EVALUATION'].includes(job.status)) return 1;
+      if (user && job.seekerId === user.id && job.status === 'OPEN') return 2;
+      if (user && job.workerId === user.id && ['ACCEPTED', 'AWAITING_EVALUATION'].includes(job.status)) return 3;
+      return 4;
+    };
+
+    // 2. Build a map of categories with their best rank
+    const categoryMap: Record<string, { category: string; jobs: Job[]; topRank: number }> = {};
+
     jobs.forEach(job => {
       const isRelated = user && (job.seekerId === user.id || job.workerId === user.id);
       
@@ -292,26 +301,35 @@ export default function JobsPage() {
         }
       }
 
-      if (!isRelated && minPayment > 0 && job.price < minPayment) {
-        return; 
+      if (!isRelated && minPayment > 0 && job.price < minPayment) return;
+
+      const rank = getRank(job);
+
+      if (!categoryMap[job.type]) {
+        categoryMap[job.type] = { category: job.type, jobs: [], topRank: rank };
       }
 
-      if (!grouped[job.type]) grouped[job.type] = [];
-      grouped[job.type].push(job);
+      // Update the category's overall priority if this job is higher priority (lower number)
+      if (rank < categoryMap[job.type].topRank) {
+        categoryMap[job.type].topRank = rank;
+      }
+
+      categoryMap[job.type].jobs.push(job);
     });
 
-    Object.keys(grouped).forEach(category => {
-      grouped[category].sort((a, b) => {
-        const getRank = (job: Job) => {
-          if (user && job.seekerId === user.id && ['ACCEPTED', 'AWAITING_EVALUATION'].includes(job.status)) return 1;
-          if (user && job.seekerId === user.id && job.status === 'OPEN') return 2;
-          if (user && job.workerId === user.id && ['ACCEPTED', 'AWAITING_EVALUATION'].includes(job.status)) return 3;
-          return 4;
-        };
+    // 3. Convert to Array and Sort the Categories
+    const sortedCategories = Object.values(categoryMap).sort((a, b) => {
+      // Primary sort: Category with the most important job (lowest topRank) comes first
+      if (a.topRank !== b.topRank) return a.topRank - b.topRank;
+      // Secondary sort: Alphabetical
+      return a.category.localeCompare(b.category);
+    });
 
+    // 4. Sort the jobs inside each category (Distance/Date)
+    sortedCategories.forEach(cat => {
+      cat.jobs.sort((a, b) => {
         const rankA = getRank(a);
         const rankB = getRank(b);
-
         if (rankA !== rankB) return rankA - rankB;
 
         const distA = a.distance ?? Infinity;
@@ -322,7 +340,7 @@ export default function JobsPage() {
       });
     });
 
-    return grouped;
+    return sortedCategories;
   };
 
   const groupedJobs = groupAndSortJobs();
@@ -479,12 +497,12 @@ export default function JobsPage() {
                 </p>
               )}
             </div>
-          ) : Object.keys(groupedJobs).length === 0 ? (
+          ) : groupedJobs.length === 0 ? (
             <p className="text-zinc-500">No jobs available right now matching your filters.</p>
           ) : (
             <div className="space-y-6">
-              {Object.entries(groupedJobs).map(([category, categoryJobs]) => {
-                // Change logic to default to 'false' on initial page load
+              {/* Updated .map to handle the array structure */}
+              {groupedJobs.map(({ category, jobs: categoryJobs }) => {
                 const isExpanded = expandedCategories[category] === true;
 
                 return (

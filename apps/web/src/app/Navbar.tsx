@@ -101,7 +101,10 @@ export default function Navbar() {
         </Link>
         
         {activeJob && (
-          <Link href={`/jobs/view/${activeJob.id}`} className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline transition-colors">
+          <Link 
+            href={`/jobs/view?id=${activeJob.id}`} // Changed from /view/${id} to /view?id=${id}
+            className="text-emerald-600 dark:text-emerald-400 font-bold hover:underline transition-colors"
+          >
             Current Job: {activeJob.title}
           </Link>
         )}

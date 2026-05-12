@@ -348,7 +348,7 @@ function calculateAutoPayDate(startDateStr: string | Date) {
   const target = new Date(startDateStr);
   
   // Simply add 1 day to reach the "following day"
-  target.setDate(target.getDate() + 0);
+  target.setDate(target.getDate() + 1);
   
   // Set expiration to the very last millisecond of that following day
   // This means at 00:00:00 of the day after, the job is officially expired.
