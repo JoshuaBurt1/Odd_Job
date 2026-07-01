@@ -1,0 +1,143 @@
+// server/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum JobStatus {
+  OPEN
+  ACCEPTED
+  AWAITING_EVALUATION
+}
+
+enum JobType {
+  // Technology
+  WEBSITE_BUILDING
+  MOBILE_APP_DEVELOPMENT
+  DATA_ANNOTATION
+  AI_MODEL_TRAINING
+  GAME_DEVELOPMENT
+
+  // Agriculture
+  CROP_PICKING
+
+  // Sanitation
+  TRASH_CLEANUP
+  LARGE_ITEM_DISPOSAL
+
+  // Home & Garden
+  GRASS_CUTTING
+  GARDEN_TENDING
+  DECK_FENCE_BUILDING
+
+  // Transportation
+  PACKAGE_DELIVERY
+  TAXI_SERVICE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  paymentId String?   
+  address   String?
+  userLat   Float?
+  userLong  Float?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  // Quality Tracking: Seeker (The person posting/paying)
+  seekerRating      Float @default(0)
+  seekerReviewCount Int   @default(0)
+
+  // Quality Tracking: Worker (The person doing the task)
+  workerRating      Float @default(0)
+  workerReviewCount Int   @default(0)
+
+  postedJobs   Job[] @relation("SeekerJobs")
+  acceptedJobs Job[] @relation("WorkerJobs")
+
+  seekerArchive CompletedJob[] @relation("SeekerCompleted")
+  workerArchive CompletedJob[] @relation("WorkerCompleted")
+
+  // Reviews
+  seekerReviews  Review[] @relation("SeekerReviews")
+  workerReviews  Review[] @relation("WorkerReviews")
+  writtenReviews Review[] @relation("WrittenReviews")
+}
+
+model Job {
+  id          String    @id @default(uuid())
+  title       String
+  type        JobType
+  description String
+  price       Float
+  status      JobStatus @default(OPEN)
+  
+  timezone    String    @default("UTC")
+  startDate   DateTime  @default(now()) @db.Timestamptz(3)
+  expiryDate  DateTime  @db.Timestamptz(3)
+  evaluationStartedAt DateTime? @db.Timestamptz(3)
+  
+  address     String?
+  lat         Float?
+  lng         Float?
+  radius      Float?
+
+  seekerId    String
+  seeker      User      @relation("SeekerJobs", fields: [seekerId], references: [id])
+
+  workerId    String?
+  worker      User?     @relation("WorkerJobs", fields: [workerId], references: [id])
+
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  paypalCaptureId String? @unique
+}
+
+model CompletedJob {
+  id                String   @id @default(uuid())
+  title             String
+  type              JobType
+  description       String
+  price             Float
+  timezone          String   @default("UTC")
+
+  seekerId          String
+  seeker            User     @relation("SeekerCompleted", fields: [seekerId], references: [id])
+
+  workerId          String
+  worker            User     @relation("WorkerCompleted", fields: [workerId], references: [id])
+
+  originalCreatedAt DateTime @db.Timestamptz(3)
+  completedAt       DateTime @default(now()) @db.Timestamptz(3)
+  paypalCaptureId String? @unique
+
+  reviews           Review[]
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1-5 stars
+  comment   String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  // The job this review is associated with
+  jobId     String
+  job       CompletedJob @relation(fields: [jobId], references: [id])
+
+  // The user who wrote the review
+  authorId  String
+  author    User     @relation("WrittenReviews", fields: [authorId], references: [id])
+
+  // If evaluating the seeker, populate seekerId
+  seekerId  String?
+  seeker    User?    @relation("SeekerReviews", fields: [seekerId], references: [id])
+
+  // If evaluating the worker, populate workerId
+  workerId  String?
+  worker    User?    @relation("WorkerReviews", fields: [workerId], references: [id])
+}
